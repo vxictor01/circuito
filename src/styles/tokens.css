@@ -1,0 +1,45 @@
+:root {
+  --paper: #f4f3ed;
+  --paper-dark: #eeeee7;
+  --surface: #fdfdfa;
+  --sidebar: #f8f8f3;
+  --row-hover: #f4f6f0;
+  --ink: #26332e;
+  --muted: #69736b;
+  --border: #d8ddd1;
+  --border-light: #e6e9e0;
+  --green: #315648;
+  --green-dark: #213d32;
+  --green-light: #e3ebe0;
+  --amber: #976520;
+  --focus: #356589;
+  --tag-muted-bg: #edefe8;
+  --tag-muted-text: #5c655d;
+  --tag-doc-bg: #e3ede4;
+  --tag-doc-text: #315847;
+  --tag-exp-bg: #ebe7f3;
+  --tag-exp-text: #604b7d;
+  --tag-queer-bg: #f2e4eb;
+  --tag-queer-text: #8a4568;
+  --tag-black-bg: #ede7df;
+  --tag-black-text: #66503a;
+  --tag-env-bg: #e2ebd9;
+  --tag-env-text: #466135;
+  --tag-student-bg: #e0eaf1;
+  --tag-student-text: #365e7a;
+  --tag-fiction-bg: #eceae0;
+  --tag-fiction-text: #5f5f42;
+  --tag-fantasy-bg: #efe2df;
+  --tag-fantasy-text: #804d43;
+  --tag-warning-bg: #f3ebd7;
+  --tag-warning-text: #805f22;
+  --tag-award-bg: #f0e4c3;
+  --tag-award-text: #6a501c;
+  --font-body:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-editorial: Georgia, "Times New Roman", serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --radius: 3px;
+  --badge-radius: 3px;
+}

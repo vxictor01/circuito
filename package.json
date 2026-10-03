@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": {"node": ">=22.12.0"},
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
@@ -13,10 +15,19 @@
     "check:dist": "node scripts/check-dist.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
-  "dependencies": {"react": "19.2.0", "react-dom": "19.2.0"},
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
   "devDependencies": {
-    "@types/react": "19.2.2", "@types/react-dom": "19.2.2",
-    "@types/node": "22.18.6", "typescript": "5.9.3", "vite": "7.3.1",
-    "tsx": "4.20.6", "@playwright/test": "1.56.1", "fake-indexeddb": "6.2.4"
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.18.6",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "fake-indexeddb": "6.2.4",
+    "prettier": "^3.6.2",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vite": "7.3.1"
   }
 }
