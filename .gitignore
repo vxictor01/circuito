@@ -1,0 +1,11 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.env*
+!.env.example
+backups/
+private/
+*_backup_*.json
+*.local
+.DS_Store
