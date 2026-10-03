@@ -1,6 +1,6 @@
 # Validação da entrega
 
-Data: **03/10/2026**. Código completo preparado para GitHub Pages, com histórico Git local e dados pessoais separados. O arquivo original de 78 festivais não foi colocado no repositório.
+Data: **03/10/2026**. Código publicado em [vxictor01/circuito](https://github.com/vxictor01/circuito), com aplicação em [GitHub Pages](https://vxictor01.github.io/circuito/), histórico Git e dados pessoais separados. O arquivo original de 78 festivais não foi colocado no repositório.
 
 ## Resultado executado
 
@@ -19,10 +19,10 @@ Data: **03/10/2026**. Código completo preparado para GitHub Pages, com históri
 | Migração do backup recebido e comparação do original completo     | Passou          |
 | Exportação/restauração integral do backup migrado                 | Passou          |
 | YAML, eventos, dependência de jobs, permissões e ambiente Pages   | Conferidos      |
-| Publicação real e execução remota no GitHub Actions               | **Pendente**    |
-| Verificação do endereço HTTPS real no GitHub Pages                | **Pendente**    |
+| Publicação real e execução remota no GitHub Actions               | **Passaram**    |
+| Verificação do endereço HTTPS real no GitHub Pages                | **Passou**      |
 
-Os testes usaram Node **24.19.0**, TypeScript **5.9.3**, Vite **7.3.1** e Playwright **1.56.1**, com Chromium. O workflow remoto está configurado para Node **22**. Não foi alegada execução remota do workflow ou validação de um site publicado. A conexão GitHub confirmou a conta `vxictor01`, mas não encontrou um repositório Circuito acessível e os comandos expostos não incluem criação de repositório ou administração de Pages.
+Os testes usaram Node **24.19.0**, TypeScript **5.9.3**, Vite **7.3.1** e Playwright **1.56.1**, com Chromium. O workflow remoto executou Node **22.23.3** e aprovou novamente os **23 testes de regras** e os **12 testes de interface**. As tarefas `build` e `deploy` concluíram com sucesso na [execução 37161849560](https://github.com/vxictor01/circuito/actions/runs/37161849560), para o commit `60d4945`. O repositório foi criado na conta `vxictor01`; Pages usa GitHub Actions e exige HTTPS.
 
 ## O que os testes críticos cobrem
 
@@ -67,6 +67,10 @@ Dashboard, tabela de festivais, cards, ficha do festival e calendário foram abe
 
 ## Fechamento da publicação
 
-Para encerrar a validação externa ainda é necessário criar ou selecionar um repositório acessível, publicar a branch `main`, habilitar Pages com GitHub Actions, aguardar `build` e `deploy` concluídos e abrir o endereço real. No endereço publicado, conferir assets, hash/refresh, manifest/escopo, backup de teste e offline antes da importação pessoal. As instruções estão no README; o aplicativo já está preparado para esse processo.
+A publicação externa foi concluída em **03/10/2026**. O endereço real abriu em HTTPS com **182 festivais, 182 edições e 188 chamadas**, sem filmes ou inscrições pessoais. A ficha do Slamdance abriu pela rota hash e permaneceu acessível após refresh. Os scripts, estilos e link do manifest usam o prefixo `/circuito/`; a interface ofereceu a instalação da PWA. Não foram observados erros do aplicativo no console; mensagens de uma extensão do ambiente foram desconsideradas.
+
+No site real, um backup público com um filme sintético foi importado com prévia e **0 erros**. O filme permaneceu após refresh. A restauração integral do catálogo público retirou esse registro de teste e conservou os 182 festivais. O comando de exportação registrou a data na interface, mas o mecanismo de captura de downloads do navegador remoto não disponibilizou o JSON para comparação nesta conferência. A exportação/restauração completa com comparação do JSON e o uso offline foram aprovados pelos testes Chromium locais e pela execução remota de produção; não foi simulada uma queda de rede no endereço HTTPS real. Os dados pessoais recebidos continuam somente no backup entregue separadamente.
+
+Os sete commits de implementação foram publicados com as mesmas árvores de arquivos do histórico local. O commit inicial do repositório e este registro de publicação completam o histórico remoto; a branch `preparacao-local` no bundle conserva os hashes originais. Alterações futuras em `main` continuam sujeitas ao workflow de validação e publicação.
 
 Referências técnicas consultadas: [GitHub Pages — custom workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages), [Vite — static deploy](https://vite.dev/guide/static-deploy.html), [upload-pages-artifact](https://github.com/actions/upload-pages-artifact) e [deploy-pages](https://github.com/actions/deploy-pages). As verificações locais foram feitas contra os arquivos e o comportamento do projeto, além da leitura dessas referências.

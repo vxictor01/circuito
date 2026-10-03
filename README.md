@@ -2,9 +2,13 @@
 
 Circuito organiza pesquisa de festivais, filmes e inscrições em uma aplicação estática para GitHub Pages. O código é versionado no GitHub; os dados pessoais ficam no navegador. Não há servidor de aplicação, login ou sincronização automática.
 
+**Abrir a aplicação:** [Circuito](https://vxictor01.github.io/circuito/) · **Código:** [vxictor01/circuito](https://github.com/vxictor01/circuito)
+
+Publicação em HTTPS confirmada em 03/10/2026. O workflow do GitHub Actions aprovou os 23 testes de regras e os 12 testes de interface antes do deploy.
+
 ## Para começar a usar
 
-1. Abra o endereço indicado em **Settings → Pages** do repositório. Para um repositório chamado `circuito`, o endereço será `https://SEU-USUARIO.github.io/circuito/`. Substitua `SEU-USUARIO` pelo nome da conta; esse endereço é um exemplo.
+1. Abra [Circuito](https://vxictor01.github.io/circuito/). Em uma instalação própria, use o endereço indicado em **Settings → Pages** do seu repositório.
 2. A primeira abertura instala o catálogo público de **182 festivais**, com a confiança e as fontes de cada registro. Confira o regulamento da edição e da categoria antes de inscrever um filme.
 3. Abra **Dados e backup** e importe seu arquivo JSON anterior, se tiver um. A aplicação mostra um relatório antes de alterar a base.
 4. Cadastre seus filmes em **Filmes**. No festival, escolha uma edição e uma chamada; compare as regras com um filme e crie uma inscrição.
@@ -57,7 +61,7 @@ Se Actions estiver desabilitado na conta/organização, habilite-o nas configura
 
 ### Preservar o histórico Git entregue
 
-O arquivo `Circuito_historico.bundle`, entregue separado do código compactado, contém a branch `main` e seus commits. Com Git instalado:
+O arquivo `Circuito_historico.bundle`, entregue separado do código compactado, contém a branch `main` publicada e os commits originais de preparação na branch `preparacao-local`. Com Git instalado:
 
 ```bash
 git clone Circuito_historico.bundle circuito
