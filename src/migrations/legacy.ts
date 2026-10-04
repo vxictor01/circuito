@@ -197,10 +197,16 @@ export function migrateLegacy(raw: Legacy) {
         legacy: structuredClone(e),
       });
       const source = {
+        id: `${eid}-source-legacy`,
         url: str(e.source) || str(e.reg) || str(f.site),
+        title: "Fonte herdada do backup",
         type: "não verificado" as const,
         checkedAt: date(e.checkedAt),
+        accessedAt: date(e.checkedAt),
         confidence: "edição anterior" as const,
+        evidenceState: "confirmado em edição anterior" as const,
+        editionLabel: String(year),
+        section: "",
         note: "Informação herdada do backup; não revalidada nesta importação.",
         fields: ["regras", "datas", "PF/PJ", "taxas"],
       };
@@ -256,6 +262,9 @@ export function migrateLegacy(raw: Legacy) {
             time: "",
             timezone: "America/Sao_Paulo",
             confirmed: false,
+            originalLabel: "prazo final",
+            sourceId: source.id,
+            supersedes: "",
           },
         ];
       if (str(e.fee) || str(e.feeValue))
@@ -270,6 +279,9 @@ export function migrateLegacy(raw: Legacy) {
             discount: "",
             waiver: "",
             notes: str(e.fee),
+            appliesTo: [],
+            platformAmount: null,
+            sourceId: source.id,
           },
         ];
       if (str(e.limit) && num(e.limit) === null)

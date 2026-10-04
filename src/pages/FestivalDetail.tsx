@@ -5,6 +5,7 @@ import { blankCall, blankEdition, blankSubmission } from "../utils/defaults";
 import { duplicateEdition } from "../utils/duplicate";
 import { eligibility } from "../utils/eligibility";
 import { deadlineStatus, displayDate } from "../utils/deadlines";
+import { displayLocations } from "../utils/normalization";
 import {
   Badge,
   Empty,
@@ -59,8 +60,14 @@ export function FestivalDetail({ id }: { id: string }) {
       </a>
       <Heading
         title={f.name}
-        eyebrow={`${f.country.toUpperCase()} / ${f.region || f.city}`}
-        description={[f.city, f.scale, f.frequency].filter(Boolean).join(" · ")}
+        eyebrow={displayLocations(f).toUpperCase()}
+        description={[
+          f.frequency,
+          f.traveling ? "itinerante" : "",
+          f.onlineOnly ? "somente online" : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
         actions={
           <>
             <button
@@ -82,12 +89,24 @@ export function FestivalDetail({ id }: { id: string }) {
         }
       />
       <div className="detail-top">
-        <Tags tags={f.genres} />
+        <Tags
+          tags={[
+            ...f.workTypes,
+            ...f.languages,
+            ...f.approaches,
+            ...f.contentGenres,
+          ]}
+        />
         <Badge tone={f.activity === "ativo" ? "positive" : "unknown"}>
           {f.activity}
         </Badge>
-        <Badge tone={f.priority === "alta" ? "priority" : "muted"}>
-          {f.priority}
+        <Badge tone={f.basePriority === "alta" ? "priority" : "muted"}>
+          prioridade-base: {f.basePriority}
+        </Badge>
+        <Badge
+          tone={f.relevance.status === "avaliada" ? "positive" : "unknown"}
+        >
+          relevância: {f.relevance.score ?? "pendente"}
         </Badge>
         <ExternalLink url={f.website}>Site oficial</ExternalLink>
         {f.instagram && (
@@ -261,12 +280,29 @@ export function FestivalDetail({ id }: { id: string }) {
                       {c.confidence}
                     </Badge>
                   </div>
-                  <Tags tags={c.genres} />
+                  <Tags
+                    tags={[
+                      ...c.workTypes,
+                      ...c.languages,
+                      ...c.approaches,
+                      ...c.contentGenres,
+                      ...c.themes,
+                    ]}
+                  />
                   <dl className="rules-grid">
                     <div>
                       <dt>Duração</dt>
                       <dd>
-                        {c.minMinutes ?? 0}–{c.maxMinutes ?? "?"} min
+                        {c.minSeconds === null
+                          ? "mínimo não confirmado"
+                          : `${Math.floor(c.minSeconds / 60)}min${c.minSeconds % 60 ? `${String(c.minSeconds % 60).padStart(2, "0")}s` : ""}`}
+                        {" – "}
+                        {c.maxSeconds === null
+                          ? "máximo não confirmado"
+                          : `${Math.floor(c.maxSeconds / 60)}min${c.maxSeconds % 60 ? `${String(c.maxSeconds % 60).padStart(2, "0")}s` : ""}`}
+                        {c.maxSeconds !== null && !c.maxInclusive
+                          ? " (máximo exclusivo)"
+                          : ""}
                       </dd>
                     </div>
                     <div>
@@ -285,7 +321,10 @@ export function FestivalDetail({ id }: { id: string }) {
                     </div>
                     <div>
                       <dt>Estreia</dt>
-                      <dd>{c.premiere}</dd>
+                      <dd>
+                        {c.premiereRequirement} · {c.premiere}
+                        {c.premiereTerritory ? ` · ${c.premiereTerritory}` : ""}
+                      </dd>
                     </div>
                     <div>
                       <dt>Online anterior</dt>
@@ -376,9 +415,10 @@ export function FestivalDetail({ id }: { id: string }) {
                       <summary>
                         <Badge
                           tone={
-                            result.status === "provavelmente compatível"
+                            result.status ===
+                            "compatível pelas regras verificadas"
                               ? "positive"
-                              : result.status === "possível conflito"
+                              : result.status === "incompatível"
                                 ? "warning"
                                 : "unknown"
                           }
@@ -446,6 +486,64 @@ export function FestivalDetail({ id }: { id: string }) {
               </p>
             )}
             <Tags tags={f.tags} />
+            <h3>Localidades</h3>
+            {f.locations.length ? (
+              <ul>
+                {f.locations.map((location) => (
+                  <li key={location.id}>
+                    {[
+                      location.city,
+                      location.subdivisionCode || location.subdivisionName,
+                      location.countryName,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}{" "}
+                    · {location.role} ·{" "}
+                    {location.confirmed ? "confirmada" : "pendente"}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">Localidade ainda não estruturada.</p>
+            )}
+          </section>
+          <section className="panel">
+            <p className="eyebrow">RELEVÂNCIA / EVIDÊNCIA</p>
+            <h3>
+              {f.relevance.score === null
+                ? "Avaliação pendente"
+                : `${f.relevance.score}/100 · ${f.relevance.band}`}
+            </h3>
+            <p>
+              {f.relevance.rationale ||
+                "Ainda não há justificativa documentada para a relevância."}
+            </p>
+            <p className="small muted">
+              Impacto: {f.relevance.impact} · confiança:{" "}
+              {f.relevance.confidence}
+              {f.relevance.assessedAt
+                ? ` · avaliada em ${displayDate(f.relevance.assessedAt)}`
+                : ""}
+            </p>
+            {f.relevance.status !== "pendente" && (
+              <dl className="rules-grid">
+                {Object.entries(f.relevance.dimensions).map(
+                  ([key, dimension]) => (
+                    <div key={key}>
+                      <dt>{key}</dt>
+                      <dd>
+                        {dimension.score ?? "?"} ·{" "}
+                        {dimension.evidence || "sem evidência descrita"}
+                      </dd>
+                    </div>
+                  ),
+                )}
+              </dl>
+            )}
+            <p className="small muted">
+              A relevância pública não altera sua prioridade pessoal para cada
+              filme.
+            </p>
           </section>
           <section className="panel">
             <p className="eyebrow">PESSOAL / PRIVADO</p>

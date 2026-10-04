@@ -9,7 +9,7 @@ import {
 import { type Database } from "./types";
 import { IndexedDBRepository } from "./db/repository";
 import { emptyDatabase } from "./utils/defaults";
-import { mergeDatabases } from "./migrations";
+import { mergeCatalogDatabase } from "./migrations";
 import { validateDatabase } from "./utils/validation";
 import catalogURL from "./data/catalog.json?url";
 interface Store {
@@ -47,14 +47,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           data.settings.catalogVersion !==
           (catalog as Database).settings.catalogVersion
         ) {
-          data = mergeDatabases(
+          data = mergeCatalogDatabase(
             data,
             structuredClone(catalog) as Database,
-            "current",
           );
-          data.settings.catalogVersion = (
-            catalog as Database
-          ).settings.catalogVersion;
           await r.replace(data);
         }
         if (alive) {

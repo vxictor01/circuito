@@ -17,24 +17,18 @@ export function Dashboard() {
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, []);
-  const planned = db.submissions.filter((s) =>
-    ["pesquisando", "planejado", "aguardando abertura", "aberto"].includes(
-      s.status,
-    ),
+  const planned = db.submissions.filter(
+    (submission) =>
+      submission.sendStatus === "não enviado" &&
+      submission.planningStatus !== "fora do plano",
   );
-  const sent = db.submissions.filter((s) =>
-    [
-      "inscrito",
-      "aguardando resultado",
-      "selecionado",
-      "não selecionado",
-      "semifinalista",
-      "finalista",
-      "premiado",
-    ].includes(s.status),
+  const sent = db.submissions.filter(
+    (submission) => submission.sendStatus !== "não enviado",
   );
-  const waiting = db.submissions.filter((s) =>
-    ["inscrito", "aguardando resultado"].includes(s.status),
+  const waiting = db.submissions.filter(
+    (submission) =>
+      submission.sendStatus === "aguardando decisão" &&
+      submission.resultStatus === "pendente",
   );
   const deadlines = db.calls
     .map((c) => {
@@ -231,46 +225,28 @@ export function Dashboard() {
                       </th>
                       <td>
                         {
-                          ss.filter(
-                            (s) =>
-                              ![
-                                "planejado",
-                                "pesquisando",
-                                "aguardando abertura",
-                                "aberto",
-                                "inelegível",
-                                "retirado",
-                              ].includes(s.status),
-                          ).length
-                        }
-                      </td>
-                      <td>
-                        {
-                          ss.filter((s) =>
-                            [
-                              "selecionado",
-                              "finalista",
-                              "semifinalista",
-                              "premiado",
-                            ].includes(s.status),
-                          ).length
-                        }
-                      </td>
-                      <td>
-                        {
-                          ss.filter((s) => s.status === "não selecionado")
+                          ss.filter((s) => s.sendStatus !== "não enviado")
                             .length
                         }
                       </td>
                       <td>
                         {
-                          ss.filter((s) =>
-                            [
-                              "planejado",
-                              "aguardando abertura",
-                              "inscrito",
-                              "aguardando resultado",
-                            ].includes(s.status),
+                          ss.filter((s) => s.resultStatus === "selecionado")
+                            .length
+                        }
+                      </td>
+                      <td>
+                        {
+                          ss.filter((s) => s.resultStatus === "não selecionado")
+                            .length
+                        }
+                      </td>
+                      <td>
+                        {
+                          ss.filter(
+                            (s) =>
+                              s.sendStatus === "aguardando decisão" ||
+                              s.tasks.some((task) => !task.done),
                           ).length
                         }
                       </td>

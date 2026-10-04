@@ -12,8 +12,12 @@ import {
 } from "../src/utils/defaults";
 import { validateDatabase } from "../src/utils/validation";
 import { migrateLegacy } from "../src/migrations/legacy";
-import { readImport, mergeDatabases } from "../src/migrations";
-import { backupText, parseBackup } from "../src/utils/backup";
+import {
+  readImport,
+  mergeCatalogDatabase,
+  mergeDatabases,
+} from "../src/migrations";
+import { backupText, parseBackup, publicExportText } from "../src/utils/backup";
 import {
   deadlineStatus,
   effectiveDeadline,
@@ -25,7 +29,13 @@ import {
 } from "../src/utils/deadlines";
 import { eligibility } from "../src/utils/eligibility";
 import { duplicateEdition } from "../src/utils/duplicate";
-import { emptyFilters, filterFestivals, indexes } from "../src/utils/search";
+import {
+  emptyFilters,
+  filterFestivalMatches,
+  filterFestivals,
+  indexes,
+} from "../src/utils/search";
+import { calendarEvents, calendarToICS } from "../src/utils/calendar";
 import { IndexedDBRepository } from "../src/db/repository";
 import { safeURL } from "../src/utils/links";
 import catalog from "../src/data/catalog.json";
@@ -60,6 +70,9 @@ function sample() {
         time: "23:59",
         timezone: "America/Sao_Paulo",
         confirmed: true,
+        originalLabel: "prazo final",
+        sourceId: "",
+        supersedes: "",
       },
     ],
     fees: [
@@ -71,6 +84,9 @@ function sample() {
         discount: "",
         waiver: "",
         notes: "",
+        appliesTo: [],
+        platformAmount: null,
+        sourceId: "",
       },
     ],
   } as const);
@@ -238,12 +254,12 @@ test("schema recusa datas impossíveis, faixas invertidas e taxas contraditória
   db.calls[0].fees[0].amount = 10;
   assert.throws(() => validateDatabase(db), /gratuita/);
 });
-test("migração de schema 2 preenche novos campos sem apagar filmes", () => {
+test("migração de schema 2 chega ao schema atual sem apagar filmes", () => {
   const old = sample() as unknown as Record<string, unknown>;
   old.schemaVersion = 2;
   delete (old.festivals as Record<string, unknown>[])[0].aliases;
   const next = readImport(old).db;
-  assert.equal(next.schemaVersion, 3);
+  assert.equal(next.schemaVersion, 4);
   assert.deepEqual(next.festivals[0].aliases, []);
   assert.equal(next.films[0].notes, "Nota pessoal");
 });
@@ -349,13 +365,13 @@ test("elegibilidade explica compatibilidade, conflito e desconhecidos", () => {
   const db = sample();
   assert.equal(
     eligibility(db.films[0], db.calls[0]).status,
-    "provavelmente compatível",
+    "compatível pelas regras verificadas",
   );
   db.films[0].minutes = 21;
   const conflict = eligibility(db.films[0], db.calls[0]);
-  assert.equal(conflict.status, "possível conflito");
+  assert.equal(conflict.status, "incompatível");
   assert.equal(
-    conflict.rules.find((r) => r.rule === "Duração")?.state,
+    conflict.rules.find((r) => r.rule === "Duração precisa")?.state,
     "conflict",
   );
   db.films[0].minutes = 14;
@@ -363,14 +379,14 @@ test("elegibilidade explica compatibilidade, conflito e desconhecidos", () => {
   db.calls[0].confidence = "edição anterior";
   assert.equal(
     eligibility(db.films[0], db.calls[0]).status,
-    "faltam informações",
+    "depende de confirmação",
   );
 });
 test("restrições territoriais e estreia mundial nunca viram compatibilidade automática", () => {
   const db = sample();
   const c = db.calls[0];
   c.countries = ["França"];
-  assert.equal(eligibility(db.films[0], c).status, "possível conflito");
+  assert.equal(eligibility(db.films[0], c).status, "incompatível");
   c.countries = [];
   c.premiere = "mundial";
   db.films[0].worldPremiereAvailable = "não";
@@ -434,6 +450,241 @@ test("filtros usam edição mais recente, sem reutilizar chamada antiga", () => 
     filterFestivals(db, { ...emptyFilters, pf: "sim" }, now).length,
     0,
   );
+});
+test("exportação pública remove filmes, inscrições, notas e links privados", () => {
+  const db = sample();
+  db.festivals[0].personalNotes = "ESTRATÉGIA-SECRETA";
+  db.submissions.push({
+    ...blankSubmission("private"),
+    filmId: "film1",
+    festivalId: "f1",
+    editionId: "e1",
+    callId: "c1",
+    protocol: "PROTOCOLO-SECRETO",
+  });
+  const exported = publicExportText(db);
+  assert.doesNotMatch(exported, /ESTRATÉGIA-SECRETA/);
+  assert.doesNotMatch(exported, /PROTOCOLO-SECRETO/);
+  assert.doesNotMatch(exported, /private-film/);
+  const parsed = JSON.parse(exported) as Database;
+  assert.deepEqual(parsed.films, []);
+  assert.deepEqual(parsed.submissions, []);
+  validateDatabase(parsed);
+});
+test("atualização do catálogo preserva escolhas pessoais e expõe diferenças", () => {
+  const current = sample();
+  current.settings.catalogVersion = "1";
+  current.festivals[0].favorite = true;
+  current.festivals[0].personalNotes = "Minha estratégia";
+  current.festivals[0].basePriority = "alta";
+  const nextCatalog = sample();
+  nextCatalog.settings.catalogVersion = "2";
+  nextCatalog.festivals[0].description = "Descrição pública atualizada";
+  nextCatalog.festivals[0].favorite = false;
+  nextCatalog.festivals[0].personalNotes = "";
+  nextCatalog.festivals[0].basePriority = "baixa";
+  const merged = mergeCatalogDatabase(
+    current,
+    nextCatalog,
+    "2026-10-04T12:00:00.000Z",
+  );
+  assert.equal(merged.settings.catalogVersion, "2");
+  assert.equal(merged.festivals[0].favorite, true);
+  assert.equal(merged.festivals[0].personalNotes, "Minha estratégia");
+  assert.equal(merged.festivals[0].basePriority, "alta");
+  const update = merged.archive.catalogUpdates.find(
+    (item) => item.entityType === "festival",
+  );
+  assert.ok(update?.fields.includes("description"));
+  assert.equal(update?.fields.includes("favorite"), false);
+  assert.equal(update?.fields.includes("personalNotes"), false);
+  assert.equal(update?.fields.includes("basePriority"), false);
+});
+test("filtros de Brasil e exterior usam localidades, não palavras no nome", () => {
+  const db = sample();
+  db.festivals[0].name = "Festival Internacional Brasileiro";
+  db.festivals[0].locations = [
+    {
+      id: "loc-br",
+      role: "sede",
+      countryCode: "BR",
+      countryName: "Brasil",
+      subdivisionCode: "SP",
+      subdivisionName: "São Paulo",
+      city: "São Paulo",
+      municipalityCode: "3550308",
+      district: "",
+      confirmed: true,
+      sourceIds: [],
+    },
+  ];
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, locationScope: "brasil" }, now)
+      .length,
+    1,
+  );
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, locationScope: "exterior" }, now)
+      .length,
+    0,
+  );
+  db.festivals[0].locations.push({
+    ...db.festivals[0].locations[0],
+    id: "loc-fr",
+    role: "exibição",
+    countryCode: "FR",
+    countryName: "França",
+    subdivisionCode: "",
+    subdivisionName: "Île-de-France",
+    city: "Paris",
+    municipalityCode: "",
+  });
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, locationScope: "exterior" }, now)
+      .length,
+    1,
+  );
+});
+test("festival multicidade aparece uma única vez em filtros de UF e cidade", () => {
+  const db = sample();
+  const baseLocation = {
+    id: "loc-sp",
+    role: "sede" as const,
+    countryCode: "BR",
+    countryName: "Brasil",
+    subdivisionCode: "SP",
+    subdivisionName: "São Paulo",
+    city: "São Paulo",
+    municipalityCode: "3550308",
+    district: "",
+    confirmed: true,
+    sourceIds: [],
+  };
+  db.festivals[0].locations = [
+    baseLocation,
+    {
+      ...baseLocation,
+      id: "loc-rj",
+      role: "exibição",
+      subdivisionCode: "RJ",
+      subdivisionName: "Rio de Janeiro",
+      city: "Rio de Janeiro",
+      municipalityCode: "3304557",
+    },
+  ];
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, region: "SP" }, now).length,
+    1,
+  );
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, region: "RJ" }, now).length,
+    1,
+  );
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, city: "Rio de Janeiro" }, now)
+      .length,
+    1,
+  );
+});
+test("duração em segundos distingue 20min de 20min30s", () => {
+  const db = sample();
+  db.calls[0].maxSeconds = 20 * 60;
+  db.calls[0].maxInclusive = true;
+  db.films[0].durationSeconds = 20 * 60 + 30;
+  assert.equal(eligibility(db.films[0], db.calls[0]).status, "incompatível");
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, minutes: "20.5" }, now).length,
+    0,
+  );
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, minutes: "20" }, now).length,
+    1,
+  );
+});
+test("dados desconhecidos aparecem como pendentes, nunca como confirmação", () => {
+  const db = sample();
+  db.calls[0].pf = "não confirmado";
+  db.calls[0].confidence = "não verificado";
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, pf: "sim" }, now).length,
+    0,
+  );
+  const matches = filterFestivalMatches(
+    db,
+    { ...emptyFilters, pf: "sim", dataQuality: "include-pending" },
+    now,
+  );
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].confirmedCalls.length, 0);
+  assert.equal(matches[0].pendingCalls.length, 1);
+});
+test("sazonalidade não transforma previsão histórica em data confirmada", () => {
+  const db = sample();
+  db.festivals[0].seasonality.opening = {
+    months: [9],
+    evidenceYears: [2024, 2025],
+    confidence: "média",
+    note: "Estimativa histórica",
+  };
+  db.calls[0].opening = "";
+  db.calls[0].deadlines = [];
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, openingMonth: "9" }, now).length,
+    1,
+  );
+  assert.equal(deadlineStatus(db.calls[0], now).open, false);
+});
+test("relevância documentada e prioridade pessoal são independentes", () => {
+  const db = sample();
+  db.festivals[0].relevance.score = 88;
+  db.festivals[0].relevance.band = "muito alta";
+  db.festivals[0].basePriority = "baixa";
+  db.submissions.push({
+    ...blankSubmission("priority"),
+    filmId: "film1",
+    festivalId: "f1",
+    editionId: "e1",
+    callId: "c1",
+    personalPriority: "alta",
+  });
+  assert.equal(
+    filterFestivals(db, { ...emptyFilters, relevanceMin: "80" }, now).length,
+    1,
+  );
+  assert.equal(
+    filterFestivals(
+      db,
+      { ...emptyFilters, filmId: "film1", priority: "alta" },
+      now,
+    ).length,
+    1,
+  );
+  assert.equal(db.festivals[0].basePriority, "baixa");
+});
+test("calendário inclui tarefas e prazo interno sem exportar protocolo privado", () => {
+  const db = sample();
+  db.submissions.push({
+    ...blankSubmission("calendar"),
+    filmId: "film1",
+    festivalId: "f1",
+    editionId: "e1",
+    callId: "c1",
+    protocol: "SEGREDO-123",
+    internalDeadline: "2026-10-08",
+    tasks: [
+      {
+        id: "task-1",
+        title: "Revisar legendas",
+        due: "2026-10-07",
+        done: false,
+        kind: "material",
+      },
+    ],
+  });
+  const events = calendarEvents(db);
+  assert.ok(events.some((event) => event.kind === "prazo interno"));
+  assert.ok(events.some((event) => event.kind === "tarefa"));
+  assert.doesNotMatch(calendarToICS(events), /SEGREDO-123/);
 });
 test("duplicar edição limpa datas e exige revalidação da nova edição", () => {
   const db = sample();
@@ -511,7 +762,7 @@ test("upgrade de IndexedDB adiciona índices e migra schema sem reset", async ()
     request.onerror = () => reject(request.error);
   });
   const restored = await new IndexedDBRepository(name).load();
-  assert.equal(restored.schemaVersion, 3);
+  assert.equal(restored.schemaVersion, 4);
   assert.equal(restored.films[0].links[0].private, true);
   assert.equal(restored.films[0].notes, "Nota pessoal");
 });

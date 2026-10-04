@@ -2,6 +2,13 @@ import {
   SCHEMA_VERSION,
   FORMATS,
   GENRES,
+  WORK_TYPES,
+  LANGUAGES,
+  APPROACHES,
+  CONTENT_GENRES,
+  THEMES,
+  AUDIENCES,
+  PARTICIPATION_CONDITIONS,
   PREMIERES,
   SUBMISSION_STATUSES,
   type Database,
@@ -70,11 +77,39 @@ export function validateDatabase(value: unknown): asserts value is Database {
     "edição anterior",
     "não verificado",
   ];
+  const evidenceStates = [
+    "confirmado na edição atual",
+    "confirmado em edição anterior",
+    "estimativa histórica",
+    "informação conflitante",
+    "não localizado",
+    "pendente",
+  ];
+  const priorities = [
+    "alta",
+    "média",
+    "baixa",
+    "fora do plano",
+    "sem prioridade",
+  ];
   const sources = (v: unknown) => {
     if (!Array.isArray(v)) throw new Error("Fontes inválidas");
     for (const s of v) {
-      strs(s, ["url", "type", "checkedAt", "confidence", "note"]);
-      dates(s, ["checkedAt"]);
+      strs(s, [
+        "id",
+        "url",
+        "title",
+        "type",
+        "checkedAt",
+        "accessedAt",
+        "confidence",
+        "evidenceState",
+        "editionLabel",
+        "section",
+        "note",
+      ]);
+      if (!s.id.trim()) throw new Error("Fonte sem identificador");
+      dates(s, ["checkedAt", "accessedAt"]);
       arr(s.fields);
       choice(s.type, [
         "oficial",
@@ -84,6 +119,7 @@ export function validateDatabase(value: unknown): asserts value is Database {
         "não verificado",
       ]);
       choice(s.confidence, confidence);
+      choice(s.evidenceState, evidenceStates);
     }
   };
   for (const f of d.festivals) {
@@ -110,7 +146,121 @@ export function validateDatabase(value: unknown): asserts value is Database {
     arr(f.tags);
     if (typeof f.favorite !== "boolean") throw new Error("Favorito inválido");
     choice(f.activity, ["ativo", "atividade não confirmada", "inativo"]);
-    choice(f.priority, ["alta", "média", "baixa", "sem prioridade"]);
+    choice(f.priority, priorities);
+    choice(f.basePriority, priorities);
+    if (
+      typeof f.traveling !== "boolean" ||
+      typeof f.onlineOnly !== "boolean" ||
+      !Array.isArray(f.locations)
+    )
+      throw new Error("Localização normalizada inválida");
+    for (const location of f.locations) {
+      strs(location as unknown as Legacy, [
+        "id",
+        "role",
+        "countryCode",
+        "countryName",
+        "subdivisionCode",
+        "subdivisionName",
+        "city",
+        "municipalityCode",
+        "district",
+      ]);
+      choice(location.role, ["sede", "exibição", "organização"]);
+      if (typeof location.confirmed !== "boolean")
+        throw new Error("Confirmação de local inválida");
+      arr(location.sourceIds);
+    }
+    arr(f.workTypes, WORK_TYPES);
+    arr(f.languages, LANGUAGES);
+    arr(f.approaches, APPROACHES);
+    arr(f.contentGenres, CONTENT_GENRES);
+    arr(f.themes, THEMES);
+    arr(f.audiences, AUDIENCES);
+    arr(f.participationConditions, PARTICIPATION_CONDITIONS);
+    for (const estimate of [f.seasonality.opening, f.seasonality.event]) {
+      if (
+        !estimate ||
+        !Array.isArray(estimate.months) ||
+        estimate.months.some(
+          (month) => !Number.isInteger(month) || month < 1 || month > 12,
+        ) ||
+        !Array.isArray(estimate.evidenceYears) ||
+        estimate.evidenceYears.some((year) => !Number.isInteger(year)) ||
+        typeof estimate.note !== "string"
+      )
+        throw new Error("Sazonalidade inválida");
+      choice(estimate.confidence, ["alta", "média", "baixa", "desconhecida"]);
+    }
+    if (!f.relevance || !f.researchCoverage)
+      throw new Error("Pesquisa ou relevância ausente");
+    choice(f.relevance.status, ["avaliada", "provisória", "pendente"]);
+    choice(f.relevance.band, [
+      "muito alta",
+      "alta",
+      "intermediária",
+      "menor alcance documentado",
+      "pendente",
+    ]);
+    choice(f.relevance.impact, [
+      "internacional amplo",
+      "nacional",
+      "especializado",
+      "regional/local",
+      "comunitário",
+      "pendente",
+    ]);
+    choice(f.relevance.confidence, ["alta", "média", "baixa", "pendente"]);
+    strs(f.relevance as unknown as Legacy, ["assessedAt", "rationale"]);
+    for (const score of [
+      f.relevance.score,
+      f.relevance.uncertaintyMin,
+      f.relevance.uncertaintyMax,
+    ]) {
+      number(score);
+      if (score !== null && score > 100)
+        throw new Error("Nota de relevância inválida");
+    }
+    dates(f.relevance as unknown as Legacy, ["assessedAt"]);
+    const dimensionMaximums = [25, 20, 20, 20, 15];
+    const dimensions = Object.values(f.relevance.dimensions);
+    if (dimensions.length !== dimensionMaximums.length)
+      throw new Error("Rubrica de relevância incompleta");
+    dimensions.forEach((dimension, index) => {
+      number(dimension.score);
+      if (
+        dimension.score !== null &&
+        dimension.score > dimensionMaximums[index]
+      )
+        throw new Error("Dimensão de relevância fora da faixa");
+      if (typeof dimension.evidence !== "string")
+        throw new Error("Evidência de relevância inválida");
+      arr(dimension.sourceIds);
+    });
+    if (f.relevance.status === "avaliada") {
+      if (
+        f.relevance.score === null ||
+        dimensions.some(
+          (dimension) =>
+            dimension.score === null ||
+            !dimension.evidence.trim() ||
+            !dimension.sourceIds.length,
+        )
+      )
+        throw new Error("Relevância avaliada sem evidência completa");
+      const calculated = dimensions.reduce(
+        (total, dimension) => total + Number(dimension.score),
+        0,
+      );
+      if (calculated !== f.relevance.score)
+        throw new Error("Nota de relevância difere da rubrica");
+    }
+    for (const coverage of Object.values(f.researchCoverage)) {
+      choice(coverage.status, evidenceStates);
+      if (typeof coverage.note !== "string")
+        throw new Error("Cobertura inválida");
+      arr(coverage.sourceIds);
+    }
     sources(f.sources);
   }
   for (const e of d.editions) {
@@ -156,10 +306,24 @@ export function validateDatabase(value: unknown): asserts value is Database {
     if (!c.name.trim()) throw new Error("Chamada sem nome");
     arr(c.formats, FORMATS);
     arr(c.genres, GENRES);
+    arr(c.workTypes, WORK_TYPES);
+    arr(c.languages, LANGUAGES);
+    arr(c.approaches, APPROACHES);
+    arr(c.contentGenres, CONTENT_GENRES);
+    arr(c.themes, THEMES);
+    arr(c.audiences, AUDIENCES);
+    arr(c.participationConditions, PARTICIPATION_CONDITIONS);
     arr(c.countries);
     arr(c.regions);
     dates(c as unknown as Legacy, ["opening", "checkedAt"]);
-    for (const v of [c.minMinutes, c.maxMinutes, c.minYear, c.maxYear])
+    for (const v of [
+      c.minMinutes,
+      c.maxMinutes,
+      c.minSeconds,
+      c.maxSeconds,
+      c.minYear,
+      c.maxYear,
+    ])
       number(v);
     if (
       c.minMinutes !== null &&
@@ -173,11 +337,38 @@ export function validateDatabase(value: unknown): asserts value is Database {
     choice(c.pj, answers);
     choice(c.resubmission, answers);
     choice(c.premiere, PREMIERES);
+    choice(c.premiereRequirement, [
+      "obrigatória",
+      "preferencial",
+      "sem exigência confirmada",
+      "desconhecida",
+    ]);
+    choice(c.submissionMode, [
+      "aberta",
+      "convite",
+      "indicação",
+      "curadoria sem chamada",
+      "não confirmado",
+    ]);
+    choice(c.selectionType, [
+      "competitiva",
+      "não competitiva",
+      "mista",
+      "não confirmado",
+    ]);
+    strs(c as unknown as Legacy, [
+      "premiereTerritory",
+      "premiereConditions",
+      "onlineConditions",
+    ]);
     choice(c.online, ["permitido", "proibido", "restrito", "não confirmado"]);
     choice(c.confidence, confidence);
     if (
       typeof c.genresConfirmed !== "boolean" ||
-      typeof c.territoriesConfirmed !== "boolean"
+      typeof c.territoriesConfirmed !== "boolean" ||
+      typeof c.minInclusive !== "boolean" ||
+      typeof c.maxInclusive !== "boolean" ||
+      (c.creditsIncluded !== null && typeof c.creditsIncluded !== "boolean")
     )
       throw new Error("Confirmação inválida");
     if (!Array.isArray(c.deadlines) || !Array.isArray(c.fees))
@@ -198,6 +389,7 @@ export function validateDatabase(value: unknown): asserts value is Database {
         (x.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(x.time))
       )
         throw new Error("Hora de prazo inválida");
+      strs(x as unknown as Legacy, ["originalLabel", "sourceId", "supersedes"]);
       try {
         new Intl.DateTimeFormat("pt-BR", { timeZone: x.timezone });
       } catch {
@@ -215,7 +407,10 @@ export function validateDatabase(value: unknown): asserts value is Database {
         "discount",
         "waiver",
         "notes",
+        "sourceId",
       ]);
+      arr(f.appliesTo);
+      number(f.platformAmount);
       if (f.free === "sim" && f.amount !== null && f.amount !== 0)
         throw new Error("Taxa gratuita com valor diferente de zero");
     }
@@ -244,12 +439,82 @@ export function validateDatabase(value: unknown): asserts value is Database {
     if (!f.title.trim()) throw new Error("Filme sem título");
     number(f.year);
     number(f.minutes);
+    number(f.durationSeconds);
     arr(f.genres, GENRES);
+    arr(f.languages, LANGUAGES);
+    arr(f.approaches, APPROACHES);
+    arr(f.contentGenres, CONTENT_GENRES);
+    arr(f.themes, THEMES);
+    arr(f.audiences, AUDIENCES);
+    arr(f.participationConditions, PARTICIPATION_CONDITIONS);
+    choice(f.workType, ["", ...WORK_TYPES]);
     arr(f.coproduction);
     arr(f.subtitles);
     choice(f.format, ["", ...FORMATS]);
     choice(f.worldPremiereAvailable, answers);
     choice(f.online, ["permitido", "proibido", "restrito", "não confirmado"]);
+    choice(f.onlineStatus, [
+      "nunca publicado",
+      "screener privado",
+      "publicação pública atual",
+      "publicação pública anterior",
+      "sessão online restrita/geobloqueada",
+      "TV/VOD",
+      "não informado",
+    ]);
+    if (
+      !Array.isArray(f.onlineHistory) ||
+      !Array.isArray(f.exhibitionHistory) ||
+      !Array.isArray(f.materials)
+    )
+      throw new Error("Histórico ou materiais inválidos");
+    for (const history of f.onlineHistory) {
+      strs(history as unknown as Legacy, ["status", "start", "end", "notes"]);
+      dates(history as unknown as Legacy, ["start", "end"]);
+      arr(history.territories);
+    }
+    for (const exhibition of f.exhibitionHistory) {
+      strs(exhibition as unknown as Legacy, [
+        "id",
+        "date",
+        "event",
+        "country",
+        "region",
+        "city",
+        "access",
+        "modality",
+        "notes",
+      ]);
+      dates(exhibition as unknown as Legacy, ["date"]);
+      choice(exhibition.access, [
+        "público",
+        "restrito",
+        "privado",
+        "não informado",
+      ]);
+      choice(exhibition.modality, [
+        "presencial",
+        "online",
+        "híbrida",
+        "TV/VOD",
+        "não informado",
+      ]);
+      if (typeof exhibition.announced !== "boolean")
+        throw new Error("Exibição inválida");
+    }
+    for (const material of f.materials) {
+      strs(material as unknown as Legacy, [
+        "id",
+        "type",
+        "version",
+        "url",
+        "status",
+        "notes",
+      ]);
+      choice(material.status, ["pronto", "revisar", "faltante"]);
+      if (typeof material.private !== "boolean")
+        throw new Error("Material inválido");
+    }
     dates(f as unknown as Legacy, ["completionDate", "premiereDate"]);
     if (
       !Array.isArray(f.links) ||
@@ -289,7 +554,70 @@ export function validateDatabase(value: unknown): asserts value is Database {
     ]);
     dates(s as unknown as Legacy, ["date", "deadline", "resultDate"]);
     choice(s.status, SUBMISSION_STATUSES);
+    choice(s.planningStatus, [
+      "pesquisando",
+      "priorizado",
+      "aguardando abertura",
+      "preparando",
+      "fora do plano",
+    ]);
+    choice(s.sendStatus, [
+      "não enviado",
+      "enviado",
+      "aguardando decisão",
+      "retirado",
+    ]);
+    choice(s.resultStatus, [
+      "pendente",
+      "selecionado",
+      "não selecionado",
+      "lista de espera",
+      "outro",
+    ]);
+    choice(s.personalPriority, priorities);
+    strs(s as unknown as Legacy, [
+      "responsible",
+      "protocol",
+      "expectedDecisionDate",
+      "nextAction",
+      "internalDeadline",
+    ]);
+    dates(s as unknown as Legacy, ["expectedDecisionDate", "internalDeadline"]);
     number(s.fee);
+    number(s.originalFee);
+    number(s.paidBRL);
+    if (
+      typeof s.waiverUsed !== "boolean" ||
+      !Array.isArray(s.checklist) ||
+      !Array.isArray(s.tasks) ||
+      !Array.isArray(s.screenings) ||
+      !Array.isArray(s.awards)
+    )
+      throw new Error("Acompanhamento de inscrição inválido");
+    for (const item of s.checklist) {
+      strs(item as unknown as Legacy, ["item", "notes"]);
+      if (typeof item.required !== "boolean" || typeof item.done !== "boolean")
+        throw new Error("Checklist inválido");
+    }
+    for (const task of s.tasks) {
+      strs(task as unknown as Legacy, ["id", "title", "due", "kind"]);
+      dates(task as unknown as Legacy, ["due"]);
+      if (typeof task.done !== "boolean") throw new Error("Tarefa inválida");
+    }
+    for (const screening of s.screenings) {
+      strs(screening as unknown as Legacy, [
+        "id",
+        "date",
+        "place",
+        "modality",
+        "notes",
+      ]);
+      dates(screening as unknown as Legacy, ["date"]);
+    }
+    for (const award of s.awards) {
+      strs(award as unknown as Legacy, ["id", "title", "date", "notes"]);
+      dates(award as unknown as Legacy, ["date"]);
+    }
   }
   if (
     !d.settings ||
@@ -301,6 +629,9 @@ export function validateDatabase(value: unknown): asserts value is Database {
     d.settings.pageSize > 200
   )
     throw new Error("Configurações inválidas");
+  arr(d.settings.festivalColumns);
+  if (!Array.isArray(d.settings.savedFestivalViews))
+    throw new Error("Vistas salvas inválidas");
   try {
     new Intl.DateTimeFormat("pt-BR", { timeZone: d.settings.timezone });
   } catch {
@@ -309,7 +640,10 @@ export function validateDatabase(value: unknown): asserts value is Database {
   if (
     !d.archive ||
     !Array.isArray(d.archive.excludedFestivals) ||
-    !Array.isArray(d.archive.importReports)
+    !Array.isArray(d.archive.importReports) ||
+    (d.archive.editHistory !== undefined &&
+      !Array.isArray(d.archive.editHistory)) ||
+    !Array.isArray(d.archive.catalogUpdates)
   )
     throw new Error("Arquivo de preservação ausente");
 }
