@@ -202,7 +202,8 @@ export function matchCallState(
       (call.maxInclusive ? seconds <= maxSeconds : seconds < maxSeconds);
     states.push(
       evaluate(
-        Number.isFinite(seconds) && maxSeconds !== null,
+        Number.isFinite(seconds) &&
+          (minSeconds !== null || maxSeconds !== null),
         minOk && maxOk,
         sourceConfirms(call, ["minMinutes", "maxMinutes", "duration"]),
       ),

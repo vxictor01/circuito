@@ -178,6 +178,25 @@ const currentFestivals = db.festivals.filter((festival) =>
     (item) => item.evidenceState === "confirmado na edição atual",
   ),
 ).length;
+const currentFestivalIds = new Set(
+  db.festivals
+    .filter((festival) =>
+      festival.sources.some(
+        (item) => item.evidenceState === "confirmado na edição atual",
+      ),
+    )
+    .map((festival) => festival.id),
+);
+const confirmedEditions = db.editions.filter(
+  (edition) => edition.confidence === "confirmado",
+);
+const partialCurrentEditions = db.editions.filter(
+  (edition) =>
+    currentFestivalIds.has(edition.festivalId) &&
+    edition.confidence !== "confirmado",
+);
+const festivalName = (festivalId) =>
+  db.festivals.find((festival) => festival.id === festivalId)?.name || festivalId;
 const fullyCurrent = db.festivals.filter((festival) =>
   fields.every(
     (field) =>
@@ -196,12 +215,20 @@ Gerado em 2026-10-04 a partir do catálogo ${db.settings.catalogVersion}.
 - Festivais no inventário: **${db.festivals.length}**.
 - Festivais com ao menos uma fonte confirmada na edição atual: **${currentFestivals}**.
 - Festivais com todas as 14 dimensões de cobertura confirmadas na edição atual: **${fullyCurrent}**.
-- Edições marcadas como confirmadas: **${db.editions.filter((edition) => edition.confidence === "confirmado").length}/${db.editions.length}**.
+- Edições marcadas como confirmadas: **${confirmedEditions.length}/${db.editions.length}**.
 - Chamadas marcadas como confirmadas: **${db.calls.filter((call) => call.confidence === "confirmado").length}/${db.calls.length}**.
 - Avaliações de relevância avaliadas: **${db.festivals.filter((festival) => festival.relevance.status === "avaliada").length}**; provisórias: **${db.festivals.filter((festival) => festival.relevance.status === "provisória").length}**; pendentes: **${db.festivals.filter((festival) => festival.relevance.status === "pendente").length}**.
 - Exceções sem localidade fixa: **${exceptions.length}**${exceptions.length ? ` (${exceptions.map((festival) => festival.name).join(", ")})` : ""}.
 
-Nesta etapa foram lidos integralmente e estruturados os regulamentos/páginas oficiais do Festival de Brasília 2026, Curta Kinoforum 2026, Curta Cinema 2027, É Tudo Verdade 2026 e FestCurtasBH 2026. Para o Curta Cinema, a qualificação dos prêmios da competição nacional e internacional também foi conferida na lista oficial da 99ª edição do Oscar. No É Tudo Verdade, o reconhecimento pela Academia permanece identificado como declaração do próprio regulamento, sem validação independente neste lote. Os demais registros continuam identificados como edição anterior, parciais, não localizados ou pendentes; não são declarados integralmente conferidos.
+### Edições atuais confirmadas
+
+${confirmedEditions.map((edition) => `- ${festivalName(edition.festivalId)} — ${edition.year}${edition.number ? ` / ${edition.number}ª edição` : ""}.`).join("\n")}
+
+### Edições atuais com pesquisa parcial
+
+${partialCurrentEditions.map((edition) => `- ${festivalName(edition.festivalId)} — ${edition.year}${edition.number ? ` / ${edition.number}ª edição` : ""}: ${edition.notes || "há campos sem confirmação integral."}`).join("\n")}
+
+Uma fonte atual confirma apenas os campos explicitamente associados a ela; não equivale a edital integral. No Curta Cinema, a qualificação dos prêmios também foi conferida na lista oficial da 99ª edição do Oscar. No É Tudo Verdade, o reconhecimento pela Academia permanece identificado como declaração do próprio regulamento, sem validação independente. Os demais registros continuam como edição anterior, não localizados ou pendentes.
 
 ## Contagem por campo e estado
 
@@ -226,7 +253,7 @@ ${fields
 
 ## Limitação real
 
-A internet está acessível. O impedimento é de volume e tempo de leitura documental: **${db.festivals.length - db.editions.filter((edition) => edition.confidence === "confirmado").length} festivais ainda não tiveram o regulamento atual integralmente estruturado neste lote**; **${db.festivals.length - currentFestivals}** não têm sequer uma fonte do festival marcada como atual. Links existentes não contam como leitura. A aplicação mantém esses casos como pendentes e o modo “somente confirmados” não os promove a compatíveis.
+A internet está acessível. Permanecem **${db.festivals.length - confirmedEditions.length} festivais sem edição atual integralmente confirmada**; nesse total estão **${partialCurrentEditions.length} edições parcialmente pesquisadas** e **${db.festivals.length - currentFestivals} festivais sem fonte atual estruturada**. Links existentes não contam como leitura. A aplicação mantém campos desconhecidos como pendentes e o modo “somente confirmados” não os promove a compatíveis.
 `;
 fs.writeFileSync(path.join(output, "RESUMO_PESQUISA.md"), summary);
 console.log(

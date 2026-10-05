@@ -476,13 +476,17 @@ test("calendário combina mês, tipo e confirmação e configurações persistem
     .getByRole("checkbox", { name: "Somente datas confirmadas" })
     .check();
   await expect(
-    page.getByRole("row").filter({ hasText: "Slamdance Film Festival" }),
+    page
+      .getByRole("row")
+      .filter({ hasText: "Slamdance Film Festival" })
+      .first(),
   ).toContainText("06/10/2026");
   await page.getByLabel("Mês", { exact: true }).fill("2027-01");
   await expect(
     page
       .getByRole("row")
-      .filter({ hasText: "Internationale Kurzfilmtage Oberhausen" }),
+      .filter({ hasText: "Internationale Kurzfilmtage Oberhausen" })
+      .first(),
   ).toContainText("18/01/2027");
   await expect(
     page.getByRole("row").filter({ hasText: "Slamdance Film Festival" }),
