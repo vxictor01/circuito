@@ -169,9 +169,14 @@ export function SourceList({
 }: {
   sources: {
     url: string;
+    title?: string;
     type: string;
     checkedAt: string;
+    accessedAt?: string;
     confidence: string;
+    evidenceState?: string;
+    editionLabel?: string;
+    section?: string;
     note: string;
     fields: string[];
   }[];
@@ -181,7 +186,7 @@ export function SourceList({
       {sources.length ? (
         sources.map((s, i) => (
           <div key={i}>
-            <ExternalLink url={s.url}>{s.type}</ExternalLink>
+            <ExternalLink url={s.url}>{s.title || s.type}</ExternalLink>
             <Badge
               tone={s.confidence === "confirmado" ? "positive" : "unknown"}
             >
@@ -192,6 +197,12 @@ export function SourceList({
                 ? `Conferido em ${s.checkedAt.split("-").reverse().join("/")}`
                 : "Sem data de verificação"}
             </span>
+            {s.evidenceState && <Badge>{s.evidenceState}</Badge>}
+            {(s.editionLabel || s.section) && (
+              <span className="small muted">
+                {[s.editionLabel, s.section].filter(Boolean).join(" · ")}
+              </span>
+            )}
             {s.note && <p>{s.note}</p>}
             {s.fields?.length > 0 && (
               <span className="small">

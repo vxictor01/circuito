@@ -97,7 +97,9 @@ test("favorito, filtros combinados, cards e modo mantido após reload", async ({
     .filter({ hasText: "FEST — New Directors New Films Festival" });
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: /Adicionar aos favoritos/ }).click();
-  await page.getByRole("button", { name: "Filtros", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Filtros avançados", exact: true })
+    .click();
   await page.getByLabel("País", { exact: true }).selectOption("Portugal");
   await page.getByLabel("Formato", { exact: true }).selectOption("curta");
   await page.getByLabel("Taxa", { exact: true }).selectOption("paid");
@@ -105,7 +107,7 @@ test("favorito, filtros combinados, cards e modo mantido após reload", async ({
   await page.getByRole("checkbox", { name: "Favoritos", exact: true }).check();
   await expect(
     page.getByRole("status").filter({ hasText: "festival encontrado" }),
-  ).toHaveText("1 festival encontrado");
+  ).toContainText("1 festival encontrado");
   await page.getByRole("button", { name: "Cards", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Cards", exact: true }),
@@ -204,6 +206,7 @@ test("exporta todos os vínculos e restaura em navegador novo", async ({
     callId: "backup-c",
     code: "PRIVADO-123",
     status: "inscrito",
+    sendStatus: "aguardando decisão",
   });
   await page.goto("./#/dados");
   await page.getByLabel("Escolher backup JSON").setInputFiles({
@@ -241,11 +244,12 @@ test("exporta todos os vínculos e restaura em navegador novo", async ({
     second.getByRole("link", { name: "Filme do backup", exact: true }),
   ).toBeVisible();
   await second.reload();
+  await second.goto(new URL("./#/inscricoes", page.url()).href);
   await expect(
     second
       .getByRole("row")
       .filter({ hasText: "Filme do backup" })
-      .getByText("inscrito", { exact: true }),
+      .getByText("aguardando decisão", { exact: true }),
   ).toBeVisible();
   await context.close();
 });
@@ -417,17 +421,17 @@ test("formulários criam festival, edição, chamada, inscrição e duplicam sem
     .getByRole("combobox", { name: "Chamada *", exact: true })
     .selectOption({ label: "Curtas brasileiros" });
   await page
-    .getByLabel("Código de inscrição (privado)", { exact: true })
+    .getByLabel("Protocolo (privado)", { exact: true })
     .fill("TESTE-SINTETICO-123");
   await page
     .getByRole("dialog")
-    .getByLabel("Estado", { exact: true })
-    .selectOption("inscrito");
+    .getByLabel("Situação do envio", { exact: true })
+    .selectOption("enviado");
   await page.getByRole("button", { name: "Salvar", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
     page.getByRole("row").filter({ hasText: "Filme para inscrição" }),
-  ).toContainText("inscrito");
+  ).toContainText("enviado");
   await page.goto(festivalURL);
   await page.getByLabel("Ano da nova edição", { exact: true }).fill("2027");
   await page.getByRole("button", { name: "Duplicar edição anterior" }).click();
@@ -472,13 +476,17 @@ test("calendário combina mês, tipo e confirmação e configurações persistem
     .getByRole("checkbox", { name: "Somente datas confirmadas" })
     .check();
   await expect(
-    page.getByRole("row").filter({ hasText: "Slamdance Film Festival" }),
+    page
+      .getByRole("row")
+      .filter({ hasText: "Slamdance Film Festival" })
+      .first(),
   ).toContainText("06/10/2026");
   await page.getByLabel("Mês", { exact: true }).fill("2027-01");
   await expect(
     page
       .getByRole("row")
-      .filter({ hasText: "Internationale Kurzfilmtage Oberhausen" }),
+      .filter({ hasText: "Internationale Kurzfilmtage Oberhausen" })
+      .first(),
   ).toContainText("18/01/2027");
   await expect(
     page.getByRole("row").filter({ hasText: "Slamdance Film Festival" }),

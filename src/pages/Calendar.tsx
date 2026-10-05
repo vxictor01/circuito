@@ -1,22 +1,52 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../store";
-import { calendarEvents } from "../utils/calendar";
+import { calendarEvents, calendarToICS } from "../utils/calendar";
 import { displayDate, todayISO } from "../utils/deadlines";
 import { Badge, Heading } from "../components/Shared";
 import { Filter } from "./Festivals";
+import { eligibility } from "../utils/eligibility";
 export function Calendar() {
   const { db } = useStore();
   const today = todayISO(db.settings.timezone);
   const [month, setMonth] = useState(today.slice(0, 7));
   const [view, setView] = useState("month");
   const [kind, setKind] = useState("");
+  const [filmId, setFilmId] = useState("");
   const [onlyConfirmed, setOnlyConfirmed] = useState(false);
   const events = useMemo(() => calendarEvents(db), [db]);
+  const filmScope = useMemo(() => {
+    if (!filmId) return null;
+    const film = db.films.find((item) => item.id === filmId);
+    if (!film)
+      return { callIds: new Set<string>(), festivalIds: new Set<string>() };
+    const editionById = new Map(
+      db.editions.map((edition) => [edition.id, edition]),
+    );
+    const callIds = new Set<string>();
+    const festivalIds = new Set(
+      db.submissions
+        .filter((submission) => submission.filmId === filmId)
+        .map((submission) => submission.festivalId),
+    );
+    for (const call of db.calls) {
+      if (eligibility(film, call).status === "incompatível") continue;
+      callIds.add(call.id);
+      const festivalId = editionById.get(call.editionId)?.festivalId;
+      if (festivalId) festivalIds.add(festivalId);
+    }
+    return { callIds, festivalIds };
+  }, [db.calls, db.editions, db.films, db.submissions, filmId]);
   const visible = events.filter(
     (e) =>
       e.date.startsWith(month) &&
       (!kind || e.kind === kind) &&
-      (!onlyConfirmed || e.confirmed),
+      (!onlyConfirmed || e.confirmed) &&
+      (!filmScope ||
+        (e.filmId
+          ? e.filmId === filmId
+          : e.callId
+            ? filmScope.callIds.has(e.callId)
+            : filmScope.festivalIds.has(e.festivalId))),
   );
   const [firstYear, firstMonth] = month.split("-").map(Number);
   const days = new Date(Date.UTC(firstYear, firstMonth, 0)).getUTCDate();
@@ -28,6 +58,17 @@ export function Calendar() {
   function move(delta: number) {
     const dt = new Date(Date.UTC(firstYear, firstMonth - 1 + delta, 1));
     setMonth(dt.toISOString().slice(0, 7));
+  }
+  function exportICS() {
+    const blob = new Blob([calendarToICS(visible)], {
+      type: "text/calendar;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `circuito-${month}.ics`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
   return (
     <>
@@ -55,6 +96,9 @@ export function Calendar() {
             →
           </button>
           <button onClick={() => setMonth(today.slice(0, 7))}>Hoje</button>
+          <button disabled={!visible.length} onClick={exportICS}>
+            Exportar mês (.ics)
+          </button>
         </div>
         <div className="segmented">
           <button
@@ -76,7 +120,21 @@ export function Calendar() {
           label="Tipo de evento"
           value={kind}
           onChange={setKind}
-          options={["abertura", "deadline", "resultado", "festival"]}
+          options={[
+            "abertura",
+            "deadline",
+            "resultado",
+            "festival",
+            "prazo interno",
+            "tarefa",
+            "sessão",
+          ]}
+        />
+        <Filter
+          label="Filme"
+          value={filmId}
+          onChange={setFilmId}
+          options={db.films.map((film) => [film.id, film.title])}
         />
         <label className="check">
           <input

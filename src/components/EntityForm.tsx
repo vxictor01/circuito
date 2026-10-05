@@ -1,20 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import {
   FORMATS,
-  GENRES,
+  WORK_TYPES,
+  LANGUAGES,
+  APPROACHES,
+  CONTENT_GENRES,
+  THEMES,
+  AUDIENCES,
+  PARTICIPATION_CONDITIONS,
   PREMIERES,
-  SUBMISSION_STATUSES,
   type Call,
   type Deadline,
   type Edition,
   type Entity,
   type Fee,
   type Film,
+  type Festival,
+  type Location,
   type Source,
   type Submission,
   type Table,
 } from "../types";
 import { useStore } from "../store";
+import { uid } from "../utils/defaults";
+import { countryCode } from "../utils/normalization";
 import { ExternalLink } from "./Shared";
 type Field = {
   key: string;
@@ -41,6 +50,26 @@ const confidence = [
   "não verificado",
 ];
 const online = ["permitido", "proibido", "restrito", "não confirmado"];
+const priorities = [
+  "sem prioridade",
+  "alta",
+  "média",
+  "baixa",
+  "fora do plano",
+];
+function legacySubmissionStatus(submission: Submission) {
+  if (submission.resultStatus === "selecionado") return "selecionado";
+  if (submission.resultStatus === "não selecionado") return "não selecionado";
+  if (submission.sendStatus === "retirado") return "retirado";
+  if (submission.sendStatus === "aguardando decisão")
+    return "aguardando resultado";
+  if (submission.sendStatus === "enviado") return "inscrito";
+  if (submission.planningStatus === "aguardando abertura")
+    return "aguardando abertura";
+  if (submission.planningStatus === "fora do plano") return "inelegível";
+  if (submission.planningStatus === "pesquisando") return "pesquisando";
+  return "planejado";
+}
 const defs: Record<
   Table,
   { title: string; groups: { title: string; fields: Field[] }[] }
@@ -78,16 +107,52 @@ const defs: Record<
         title: "Perfil",
         fields: [
           {
-            key: "genres",
-            label: "Linguagens e perfis",
+            key: "workTypes",
+            label: "Tipos de obra",
             type: "multi",
-            options: GENRES,
+            options: WORK_TYPES,
+          },
+          {
+            key: "languages",
+            label: "Linguagens",
+            type: "multi",
+            options: LANGUAGES,
+          },
+          {
+            key: "approaches",
+            label: "Abordagens",
+            type: "multi",
+            options: APPROACHES,
+          },
+          {
+            key: "contentGenres",
+            label: "Gêneros",
+            type: "multi",
+            options: CONTENT_GENRES,
+          },
+          {
+            key: "themes",
+            label: "Temas / recortes curatoriais",
+            type: "multi",
+            options: THEMES,
+          },
+          {
+            key: "audiences",
+            label: "Públicos",
+            type: "multi",
+            options: AUDIENCES,
+          },
+          {
+            key: "participationConditions",
+            label: "Condições de participação",
+            type: "multi",
+            options: PARTICIPATION_CONDITIONS,
           },
           { key: "tags", label: "Tags livres", type: "tags" },
           { key: "description", label: "Descrição", type: "textarea" },
           {
             key: "scale",
-            label: "Porte aproximado",
+            label: "Abrangência legada (revisar)",
             type: "select",
             options: [
               "não confirmado",
@@ -118,10 +183,10 @@ const defs: Record<
         fields: [
           { key: "favorite", label: "Favorito", type: "checkbox" },
           {
-            key: "priority",
-            label: "Prioridade pessoal",
+            key: "basePriority",
+            label: "Prioridade-base sugerida",
             type: "select",
-            options: ["sem prioridade", "alta", "média", "baixa"],
+            options: priorities,
           },
           { key: "personalNotes", label: "Notas pessoais", type: "textarea" },
         ],
@@ -188,15 +253,53 @@ const defs: Record<
           },
           {
             key: "formats",
-            label: "Formatos aceitos",
+            label: "Formato por duração",
             type: "multi",
-            options: FORMATS,
+            options: FORMATS.filter((format) =>
+              ["curta", "média", "longa"].includes(format),
+            ),
           },
           {
-            key: "genres",
+            key: "workTypes",
+            label: "Tipos de obra",
+            type: "multi",
+            options: WORK_TYPES,
+          },
+          {
+            key: "languages",
             label: "Linguagens aceitas",
             type: "multi",
-            options: GENRES,
+            options: LANGUAGES,
+          },
+          {
+            key: "approaches",
+            label: "Abordagens",
+            type: "multi",
+            options: APPROACHES,
+          },
+          {
+            key: "contentGenres",
+            label: "Gêneros",
+            type: "multi",
+            options: CONTENT_GENRES,
+          },
+          {
+            key: "themes",
+            label: "Temas / recortes",
+            type: "multi",
+            options: THEMES,
+          },
+          {
+            key: "audiences",
+            label: "Públicos",
+            type: "multi",
+            options: AUDIENCES,
+          },
+          {
+            key: "participationConditions",
+            label: "Condições de participação",
+            type: "multi",
+            options: PARTICIPATION_CONDITIONS,
           },
           {
             key: "genresConfirmed",
@@ -207,6 +310,29 @@ const defs: Record<
           { key: "maxMinutes", label: "Duração máxima (min)", type: "number" },
           { key: "minYear", label: "Ano de produção mínimo", type: "number" },
           { key: "maxYear", label: "Ano de produção máximo", type: "number" },
+          {
+            key: "submissionMode",
+            label: "Forma de ingresso",
+            type: "select",
+            options: [
+              "não confirmado",
+              "aberta",
+              "convite",
+              "indicação",
+              "curadoria sem chamada",
+            ],
+          },
+          {
+            key: "selectionType",
+            label: "Tipo de seleção",
+            type: "select",
+            options: [
+              "não confirmado",
+              "competitiva",
+              "não competitiva",
+              "mista",
+            ],
+          },
         ],
       },
       {
@@ -226,15 +352,37 @@ const defs: Record<
           },
           {
             key: "premiere",
-            label: "Exigência de estreia",
+            label: "Nível de estreia",
             type: "select",
             options: PREMIERES,
           },
           {
+            key: "premiereRequirement",
+            label: "Natureza da exigência de estreia",
+            type: "select",
+            options: [
+              "desconhecida",
+              "obrigatória",
+              "preferencial",
+              "sem exigência confirmada",
+            ],
+          },
+          { key: "premiereTerritory", label: "Território da estreia" },
+          {
+            key: "premiereConditions",
+            label: "Condições da estreia",
+            type: "textarea",
+          },
+          {
             key: "online",
-            label: "Disponibilidade online anterior",
+            label: "Regra sobre histórico online",
             type: "select",
             options: online,
+          },
+          {
+            key: "onlineConditions",
+            label: "Condições sobre online / TV / VOD",
+            type: "textarea",
           },
           {
             key: "countries",
@@ -294,16 +442,63 @@ const defs: Record<
           { key: "year", label: "Ano de produção", type: "number" },
           { key: "minutes", label: "Duração (minutos)", type: "number" },
           {
+            key: "durationSeconds",
+            label: "Duração total (segundos, precisa)",
+            type: "number",
+            hint: "Use este campo para limites exatos; 20min30s = 1230.",
+          },
+          {
             key: "format",
             label: "Formato",
             type: "select",
-            options: ["", ...FORMATS],
+            options: [
+              "",
+              ...FORMATS.filter((format) =>
+                ["curta", "média", "longa"].includes(format),
+              ),
+            ],
           },
           {
-            key: "genres",
-            label: "Linguagens e perfis",
+            key: "workType",
+            label: "Tipo de obra",
+            type: "select",
+            options: ["", ...WORK_TYPES],
+          },
+          {
+            key: "languages",
+            label: "Linguagens",
             type: "multi",
-            options: GENRES,
+            options: LANGUAGES,
+          },
+          {
+            key: "approaches",
+            label: "Abordagens",
+            type: "multi",
+            options: APPROACHES,
+          },
+          {
+            key: "contentGenres",
+            label: "Gêneros",
+            type: "multi",
+            options: CONTENT_GENRES,
+          },
+          {
+            key: "themes",
+            label: "Temas / recortes",
+            type: "multi",
+            options: THEMES,
+          },
+          {
+            key: "audiences",
+            label: "Públicos",
+            type: "multi",
+            options: AUDIENCES,
+          },
+          {
+            key: "participationConditions",
+            label: "Condições de participação",
+            type: "multi",
+            options: PARTICIPATION_CONDITIONS,
           },
           { key: "country", label: "País" },
           { key: "region", label: "Estado / região" },
@@ -336,10 +531,18 @@ const defs: Record<
           { key: "premiereRegion", label: "Estado da estreia" },
           { key: "premiereCity", label: "Cidade da estreia" },
           {
-            key: "online",
-            label: "Disponibilidade pública online",
+            key: "onlineStatus",
+            label: "Histórico de disponibilidade",
             type: "select",
-            options: online,
+            options: [
+              "não informado",
+              "nunca publicado",
+              "screener privado",
+              "publicação pública atual",
+              "publicação pública anterior",
+              "sessão online restrita/geobloqueada",
+              "TV/VOD",
+            ],
           },
         ],
       },
@@ -356,26 +559,81 @@ const defs: Record<
     title: "inscrição",
     groups: [
       {
-        title: "Registro de envio",
+        title: "Planejamento",
         fields: [
+          {
+            key: "planningStatus",
+            label: "Planejamento",
+            type: "select",
+            options: [
+              "pesquisando",
+              "priorizado",
+              "aguardando abertura",
+              "preparando",
+              "fora do plano",
+            ],
+          },
+          {
+            key: "personalPriority",
+            label: "Prioridade para este filme",
+            type: "select",
+            options: priorities,
+          },
+          { key: "responsible", label: "Responsável" },
+          { key: "nextAction", label: "Próxima ação" },
+          { key: "internalDeadline", label: "Prazo interno", type: "date" },
+        ],
+      },
+      {
+        title: "Envio e gasto",
+        fields: [
+          {
+            key: "sendStatus",
+            label: "Situação do envio",
+            type: "select",
+            options: [
+              "não enviado",
+              "enviado",
+              "aguardando decisão",
+              "retirado",
+            ],
+          },
           { key: "platform", label: "Plataforma" },
           { key: "date", label: "Data de inscrição", type: "date" },
           { key: "deadline", label: "Prazo usado", type: "date" },
-          { key: "fee", label: "Taxa paga", type: "number" },
+          { key: "originalFee", label: "Taxa original", type: "number" },
+          { key: "paidBRL", label: "Gasto real em BRL", type: "number" },
           {
             key: "currency",
             label: "Moeda",
             type: "select",
             options: ["BRL", "USD", "EUR", "GBP", "CAD", "MXN", "ARS", "CLP"],
           },
-          { key: "code", label: "Código de inscrição (privado)" },
+          { key: "protocol", label: "Protocolo (privado)" },
+          { key: "waiverUsed", label: "Isenção utilizada", type: "checkbox" },
+        ],
+      },
+      {
+        title: "Decisão",
+        fields: [
           {
-            key: "status",
-            label: "Estado",
+            key: "resultStatus",
+            label: "Resultado",
             type: "select",
-            options: SUBMISSION_STATUSES,
+            options: [
+              "pendente",
+              "selecionado",
+              "não selecionado",
+              "lista de espera",
+              "outro",
+            ],
           },
-          { key: "result", label: "Resultado / seção" },
+          { key: "result", label: "Resultado oficial / seção" },
+          {
+            key: "expectedDecisionDate",
+            label: "Previsão da decisão",
+            type: "date",
+          },
           { key: "resultDate", label: "Data do resultado", type: "date" },
           { key: "award", label: "Prêmio" },
           { key: "notes", label: "Notas pessoais", type: "textarea" },
@@ -400,13 +658,88 @@ export function EntityForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
+  const original = useRef(JSON.stringify(entity));
+  const dirty = JSON.stringify(draft) !== original.current;
+  const originalRecord = entity as unknown as Record<string, unknown>;
+  const changedDraftFields = [
+    ...new Set([...Object.keys(originalRecord), ...Object.keys(draft)]),
+  ].filter(
+    (key) => JSON.stringify(originalRecord[key]) !== JSON.stringify(draft[key]),
+  );
   useEffect(() => {
     const el = dialog.current!;
     el.showModal();
     return () => el.close();
   }, []);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  function requestClose() {
+    if (
+      dirty &&
+      !window.confirm("Há alterações não salvas. Deseja descartá-las?")
+    )
+      return;
+    onClose();
+  }
   const set = (key: string, value: unknown) =>
-    setDraft((d) => ({ ...d, [key]: value }));
+    setDraft((current) => {
+      const next = { ...current, [key]: value };
+      if (table === "calls" && ["minMinutes", "maxMinutes"].includes(key))
+        next[key === "minMinutes" ? "minSeconds" : "maxSeconds"] =
+          value === null ? null : Math.round(Number(value) * 60);
+      if (
+        table === "films" &&
+        key === "minutes" &&
+        next.durationSeconds === null
+      )
+        next.durationSeconds =
+          value === null ? null : Math.round(Number(value) * 60);
+      if (
+        table === "festivals" &&
+        ["country", "region", "city"].includes(key)
+      ) {
+        const festival = next as unknown as Festival;
+        const locations = [...festival.locations];
+        const primary: Location = locations[0] || {
+          id: uid("location"),
+          role: "sede",
+          countryCode: "",
+          countryName: String(next.country || ""),
+          subdivisionCode: "",
+          subdivisionName: String(next.region || ""),
+          city: String(next.city || ""),
+          municipalityCode: "",
+          district: "",
+          confirmed: false,
+          sourceIds: [],
+        };
+        if (key === "country") {
+          primary.countryName = String(value || "");
+          primary.countryCode = countryCode(primary.countryName);
+        }
+        if (key === "region") {
+          primary.subdivisionName = String(value || "");
+          primary.subdivisionCode =
+            primary.countryCode === "BR" && /^[A-Z]{2}$/.test(String(value))
+              ? String(value)
+              : "";
+        }
+        if (key === "city") primary.city = String(value || "");
+        locations[0] = primary;
+        next.locations = locations;
+      }
+      if (table === "submissions") {
+        if (key === "protocol") next.code = value;
+        if (key === "originalFee") next.fee = value;
+        const submission = next as unknown as Submission;
+        next.status = legacySubmissionStatus(submission);
+      }
+      return next;
+    });
   const options = (f: Field) => f.options || [];
   function input(f: Field) {
     const value = draft[f.key];
@@ -523,11 +856,52 @@ export function EntityForm({
     setSaving(true);
     setError("");
     try {
+      if (table === "submissions") {
+        const duplicate = db.submissions.find(
+          (item) =>
+            item.id !== entity.id &&
+            item.filmId === submission.filmId &&
+            item.festivalId === submission.festivalId &&
+            item.editionId === submission.editionId &&
+            item.callId === submission.callId,
+        );
+        if (
+          duplicate &&
+          !window.confirm(
+            "Já existe uma inscrição para este filme, festival, edição e chamada. Deseja manter outro registro mesmo assim?",
+          )
+        ) {
+          setSaving(false);
+          return;
+        }
+      }
       await change((data) => {
         const records = data[table] as Entity[];
         const index = records.findIndex((x) => x.id === entity.id);
         if (index < 0) records.push(draft as unknown as Entity);
-        else records[index] = draft as unknown as Entity;
+        else {
+          const before = structuredClone(records[index]) as unknown as Record<
+            string,
+            unknown
+          >;
+          const changedFields = [
+            ...new Set([...Object.keys(before), ...Object.keys(draft)]),
+          ].filter(
+            (key) => JSON.stringify(before[key]) !== JSON.stringify(draft[key]),
+          );
+          records[index] = draft as unknown as Entity;
+          if (changedFields.length) {
+            data.archive.editHistory ||= [];
+            data.archive.editHistory.push({
+              table,
+              entityId: entity.id,
+              changedAt: new Date().toISOString(),
+              changedFields,
+              before: before as unknown as Record<string, unknown>,
+            });
+            data.archive.editHistory = data.archive.editHistory.slice(-200);
+          }
+        }
       });
       setNotice("Salvo no seu navegador.");
       onClose();
@@ -541,7 +915,10 @@ export function EntityForm({
   return (
     <dialog
       ref={dialog}
-      onCancel={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        requestClose();
+      }}
       className="edit-dialog"
       aria-labelledby="dialog-title"
     >
@@ -562,7 +939,7 @@ export function EntityForm({
             type="button"
             className="icon-button"
             aria-label="Fechar formulário"
-            onClick={onClose}
+            onClick={requestClose}
           >
             ×
           </button>
@@ -673,8 +1050,42 @@ export function EntityForm({
               </div>
             </section>
           ))}
+          {table === "festivals" && (
+            <>
+              <LocationEditor
+                value={(draft as unknown as Festival).locations}
+                set={(locations) =>
+                  setDraft((current) => {
+                    const primary = locations[0];
+                    return {
+                      ...current,
+                      locations,
+                      country: primary?.countryName || "",
+                      region:
+                        primary?.subdivisionCode ||
+                        primary?.subdivisionName ||
+                        "",
+                      city: primary?.city || "",
+                    };
+                  })
+                }
+              />
+              <SeasonalityEditor
+                value={(draft as unknown as Festival).seasonality}
+                set={(seasonality) => set("seasonality", seasonality)}
+              />
+              <RelevanceEditor
+                value={(draft as unknown as Festival).relevance}
+                set={(relevance) => set("relevance", relevance)}
+              />
+            </>
+          )}
           {table === "calls" && (
             <>
+              <DurationRuleEditor
+                value={draft as unknown as Call}
+                set={(key, value) => set(key, value)}
+              />
               <DeadlineEditor
                 value={(draft as unknown as Call).deadlines}
                 set={(v) => set("deadlines", v)}
@@ -686,9 +1097,21 @@ export function EntityForm({
             </>
           )}
           {table === "films" && (
-            <LinkEditor
-              value={(draft as unknown as Film).links}
-              set={(v) => set("links", v)}
+            <>
+              <FilmCirculationEditor
+                value={draft as unknown as Film}
+                set={(key, value) => set(key, value)}
+              />
+              <LinkEditor
+                value={(draft as unknown as Film).links}
+                set={(v) => set("links", v)}
+              />
+            </>
+          )}
+          {table === "submissions" && (
+            <SubmissionTrackingEditor
+              value={draft as unknown as Submission}
+              set={(key, value) => set(key, value)}
             />
           )}
           {["festivals", "editions", "calls"].includes(table) && (
@@ -709,9 +1132,25 @@ export function EntityForm({
             </p>
           )}
         </div>
+        {dirty && (
+          <details className="notice-inline">
+            <summary>
+              Revisar alterações antes de salvar ({changedDraftFields.length})
+            </summary>
+            <ul>
+              {changedDraftFields.map((key) => (
+                <li key={key}>{fieldLabel(table, key)}</li>
+              ))}
+            </ul>
+          </details>
+        )}
         <footer className="dialog-footer">
-          <span className="small muted">Dados guardados neste navegador.</span>
-          <button type="button" onClick={onClose}>
+          <span className="small muted">
+            {dirty
+              ? "Alterações ainda não salvas."
+              : "Dados guardados neste navegador."}
+          </span>
+          <button type="button" onClick={requestClose}>
             Cancelar
           </button>
           <button className="primary" disabled={saving} type="submit">
@@ -722,6 +1161,1277 @@ export function EntityForm({
     </dialog>
   );
 }
+
+function fieldLabel(table: Table, key: string) {
+  return (
+    defs[table].groups
+      .flatMap((group) => group.fields)
+      .find((field) => field.key === key)?.label ||
+    (
+      {
+        locations: "Localidades normalizadas",
+        seasonality: "Sazonalidade",
+        relevance: "Avaliação de relevância",
+        sources: "Fontes",
+        deadlines: "Prazos",
+        fees: "Taxas",
+        materials: "Materiais",
+        screeningHistory: "Histórico de exibições",
+        onlineHistory: "Histórico online",
+        checklist: "Checklist",
+        tasks: "Tarefas",
+        screenings: "Sessões",
+        awards: "Prêmios",
+      } as Record<string, string>
+    )[key] ||
+    key
+  );
+}
+
+function LocationEditor({
+  value,
+  set,
+}: {
+  value: Location[];
+  set: (value: Location[]) => void;
+}) {
+  const update = (index: number, key: keyof Location, nextValue: unknown) =>
+    set(
+      value.map((location, itemIndex) => {
+        if (itemIndex !== index) return location;
+        const next = { ...location, [key]: nextValue };
+        if (key === "countryName")
+          next.countryCode = countryCode(String(nextValue));
+        return next;
+      }),
+    );
+  return (
+    <section className="form-group">
+      <h3>Localidades normalizadas</h3>
+      <p className="small muted">
+        Um festival pode ter mais de uma cidade. A primeira localidade alimenta
+        os campos legados usados por backups antigos.
+      </p>
+      {value.map((location, index) => (
+        <div className="repeater" key={location.id}>
+          <label>
+            Papel
+            <select
+              value={location.role}
+              onChange={(event) => update(index, "role", event.target.value)}
+            >
+              <option>sede</option>
+              <option>exibição</option>
+              <option>organização</option>
+            </select>
+          </label>
+          <label>
+            País
+            <input
+              value={location.countryName}
+              onChange={(event) =>
+                update(index, "countryName", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            Código do país
+            <input
+              maxLength={2}
+              value={location.countryCode}
+              onChange={(event) =>
+                update(index, "countryCode", event.target.value.toUpperCase())
+              }
+            />
+          </label>
+          <label>
+            Estado / subdivisão
+            <input
+              value={location.subdivisionName}
+              onChange={(event) =>
+                update(index, "subdivisionName", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            Código da subdivisão
+            <input
+              value={location.subdivisionCode}
+              onChange={(event) =>
+                update(
+                  index,
+                  "subdivisionCode",
+                  event.target.value.toUpperCase(),
+                )
+              }
+            />
+          </label>
+          <label>
+            Cidade
+            <input
+              value={location.city}
+              onChange={(event) => update(index, "city", event.target.value)}
+            />
+          </label>
+          <label>
+            Código do município (IBGE)
+            <input
+              value={location.municipalityCode}
+              onChange={(event) =>
+                update(index, "municipalityCode", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            Distrito / bairro
+            <input
+              value={location.district}
+              onChange={(event) =>
+                update(index, "district", event.target.value)
+              }
+            />
+          </label>
+          <label>
+            IDs das fontes
+            <input
+              value={location.sourceIds.join(", ")}
+              onChange={(event) =>
+                update(
+                  index,
+                  "sourceIds",
+                  event.target.value
+                    .split(",")
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                )
+              }
+            />
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={location.confirmed}
+              onChange={(event) =>
+                update(index, "confirmed", event.target.checked)
+              }
+            />
+            Localidade confirmada por fonte
+          </label>
+          <button
+            type="button"
+            onClick={() =>
+              set(value.filter((_, itemIndex) => itemIndex !== index))
+            }
+          >
+            Remover localidade
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() =>
+          set([
+            ...value,
+            {
+              id: uid("location"),
+              role: value.length ? "exibição" : "sede",
+              countryCode: "",
+              countryName: "",
+              subdivisionCode: "",
+              subdivisionName: "",
+              city: "",
+              municipalityCode: "",
+              district: "",
+              confirmed: false,
+              sourceIds: [],
+            },
+          ])
+        }
+      >
+        + Adicionar localidade
+      </button>
+    </section>
+  );
+}
+
+function SeasonalityEditor({
+  value,
+  set,
+}: {
+  value: Festival["seasonality"];
+  set: (value: Festival["seasonality"]) => void;
+}) {
+  const update = (
+    kind: keyof Festival["seasonality"],
+    key: keyof Festival["seasonality"]["opening"],
+    nextValue: unknown,
+  ) => set({ ...value, [kind]: { ...value[kind], [key]: nextValue } });
+  return (
+    <section className="form-group">
+      <h3>Sazonalidade histórica</h3>
+      <p className="small muted">
+        Previsões sazonais são independentes das datas confirmadas de cada
+        edição.
+      </p>
+      {(["opening", "event"] as const).map((kind) => (
+        <div className="repeater" key={kind}>
+          <strong>
+            {kind === "opening" ? "Abertura das inscrições" : "Evento"}
+          </strong>
+          <label>
+            Meses (1–12)
+            <input
+              value={value[kind].months.join(", ")}
+              onChange={(event) =>
+                update(
+                  kind,
+                  "months",
+                  event.target.value
+                    .split(",")
+                    .map(Number)
+                    .filter(
+                      (month) =>
+                        Number.isInteger(month) && month >= 1 && month <= 12,
+                    ),
+                )
+              }
+            />
+          </label>
+          <label>
+            Anos que sustentam a estimativa
+            <input
+              value={value[kind].evidenceYears.join(", ")}
+              onChange={(event) =>
+                update(
+                  kind,
+                  "evidenceYears",
+                  event.target.value
+                    .split(",")
+                    .map(Number)
+                    .filter((year) => Number.isInteger(year) && year >= 1900),
+                )
+              }
+            />
+          </label>
+          <label>
+            Confiança
+            <select
+              value={value[kind].confidence}
+              onChange={(event) =>
+                update(kind, "confidence", event.target.value)
+              }
+            >
+              {["desconhecida", "baixa", "média", "alta"].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field-wide">
+            Fundamento
+            <input
+              value={value[kind].note}
+              onChange={(event) => update(kind, "note", event.target.value)}
+            />
+          </label>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+const relevanceDimensions: {
+  key: keyof Festival["relevance"]["dimensions"];
+  label: string;
+  max: number;
+}[] = [
+  {
+    key: "curatorialHistory",
+    label: "Histórico e reconhecimento curatorial",
+    max: 25,
+  },
+  {
+    key: "programmingReach",
+    label: "Alcance de programação e público",
+    max: 20,
+  },
+  {
+    key: "industryOpportunities",
+    label: "Oportunidades de indústria e circulação",
+    max: 20,
+  },
+  {
+    key: "specializedImportance",
+    label: "Importância para o recorte especializado",
+    max: 20,
+  },
+  {
+    key: "continuityTransparency",
+    label: "Continuidade e transparência",
+    max: 15,
+  },
+];
+
+function RelevanceEditor({
+  value,
+  set,
+}: {
+  value: Festival["relevance"];
+  set: (value: Festival["relevance"]) => void;
+}) {
+  const updateDimension = (
+    key: keyof Festival["relevance"]["dimensions"],
+    field: "score" | "evidence" | "sourceIds",
+    nextValue: unknown,
+  ) => {
+    const dimensions = {
+      ...value.dimensions,
+      [key]: { ...value.dimensions[key], [field]: nextValue },
+    };
+    const scores = Object.values(dimensions).map(
+      (dimension) => dimension.score,
+    );
+    const score = scores.every((item) => item !== null)
+      ? scores.reduce<number>((total, item) => total + Number(item), 0)
+      : null;
+    set({ ...value, dimensions, score });
+  };
+  return (
+    <section className="form-group">
+      <h3>Relevância documentada</h3>
+      <p className="small muted">
+        Esta avaliação pública é separada da prioridade pessoal. Total
+        calculado: {value.score === null ? "pendente" : `${value.score}/100`}.
+      </p>
+      <div className="form-grid">
+        <label>
+          Estado
+          <select
+            value={value.status}
+            onChange={(event) =>
+              set({
+                ...value,
+                status: event.target.value as Festival["relevance"]["status"],
+              })
+            }
+          >
+            <option>pendente</option>
+            <option>provisória</option>
+            <option>avaliada</option>
+          </select>
+        </label>
+        <label>
+          Faixa
+          <select
+            value={value.band}
+            onChange={(event) =>
+              set({
+                ...value,
+                band: event.target.value as Festival["relevance"]["band"],
+              })
+            }
+          >
+            {[
+              "pendente",
+              "menor alcance documentado",
+              "intermediária",
+              "alta",
+              "muito alta",
+            ].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Impacto
+          <select
+            value={value.impact}
+            onChange={(event) =>
+              set({
+                ...value,
+                impact: event.target.value as Festival["relevance"]["impact"],
+              })
+            }
+          >
+            {[
+              "pendente",
+              "comunitário",
+              "regional/local",
+              "especializado",
+              "nacional",
+              "internacional amplo",
+            ].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Confiança
+          <select
+            value={value.confidence}
+            onChange={(event) =>
+              set({
+                ...value,
+                confidence: event.target
+                  .value as Festival["relevance"]["confidence"],
+              })
+            }
+          >
+            {["pendente", "baixa", "média", "alta"].map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Limite inferior da incerteza
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={value.uncertaintyMin ?? ""}
+            onChange={(event) =>
+              set({
+                ...value,
+                uncertaintyMin:
+                  event.target.value === "" ? null : Number(event.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Limite superior da incerteza
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={value.uncertaintyMax ?? ""}
+            onChange={(event) =>
+              set({
+                ...value,
+                uncertaintyMax:
+                  event.target.value === "" ? null : Number(event.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Avaliada em
+          <input
+            type="date"
+            value={value.assessedAt}
+            onChange={(event) =>
+              set({ ...value, assessedAt: event.target.value })
+            }
+          />
+        </label>
+        <label className="field-wide">
+          Justificativa geral
+          <textarea
+            rows={3}
+            value={value.rationale}
+            onChange={(event) =>
+              set({ ...value, rationale: event.target.value })
+            }
+          />
+        </label>
+      </div>
+      {relevanceDimensions.map((dimension) => {
+        const item = value.dimensions[dimension.key];
+        return (
+          <div className="repeater" key={dimension.key}>
+            <strong>
+              {dimension.label} (0–{dimension.max})
+            </strong>
+            <label>
+              Pontos
+              <input
+                type="number"
+                min="0"
+                max={dimension.max}
+                value={item.score ?? ""}
+                onChange={(event) =>
+                  updateDimension(
+                    dimension.key,
+                    "score",
+                    event.target.value === ""
+                      ? null
+                      : Number(event.target.value),
+                  )
+                }
+              />
+            </label>
+            <label className="field-wide">
+              Evidência
+              <input
+                value={item.evidence}
+                onChange={(event) =>
+                  updateDimension(dimension.key, "evidence", event.target.value)
+                }
+              />
+            </label>
+            <label className="field-wide">
+              IDs das fontes
+              <input
+                value={item.sourceIds.join(", ")}
+                onChange={(event) =>
+                  updateDimension(
+                    dimension.key,
+                    "sourceIds",
+                    event.target.value
+                      .split(",")
+                      .map((item) => item.trim())
+                      .filter(Boolean),
+                  )
+                }
+              />
+            </label>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function DurationRuleEditor({
+  value,
+  set,
+}: {
+  value: Call;
+  set: (key: keyof Call, value: unknown) => void;
+}) {
+  return (
+    <section className="form-group">
+      <h3>Precisão da duração</h3>
+      <div className="form-grid">
+        <label>
+          Mínimo exato (segundos)
+          <input
+            type="number"
+            min="0"
+            value={value.minSeconds ?? ""}
+            onChange={(event) =>
+              set(
+                "minSeconds",
+                event.target.value === "" ? null : Number(event.target.value),
+              )
+            }
+          />
+        </label>
+        <label>
+          Máximo exato (segundos)
+          <input
+            type="number"
+            min="0"
+            value={value.maxSeconds ?? ""}
+            onChange={(event) =>
+              set(
+                "maxSeconds",
+                event.target.value === "" ? null : Number(event.target.value),
+              )
+            }
+          />
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={value.minInclusive}
+            onChange={(event) => set("minInclusive", event.target.checked)}
+          />
+          Limite mínimo inclusivo
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={value.maxInclusive}
+            onChange={(event) => set("maxInclusive", event.target.checked)}
+          />
+          Limite máximo inclusivo
+        </label>
+        <label>
+          Créditos entram na duração?
+          <select
+            value={
+              value.creditsIncluded === null
+                ? "desconhecido"
+                : value.creditsIncluded
+                  ? "sim"
+                  : "não"
+            }
+            onChange={(event) =>
+              set(
+                "creditsIncluded",
+                event.target.value === "desconhecido"
+                  ? null
+                  : event.target.value === "sim",
+              )
+            }
+          >
+            <option value="desconhecido">desconhecido</option>
+            <option value="sim">sim</option>
+            <option value="não">não</option>
+          </select>
+        </label>
+      </div>
+    </section>
+  );
+}
+
+function FilmCirculationEditor({
+  value,
+  set,
+}: {
+  value: Film;
+  set: (key: keyof Film, value: unknown) => void;
+}) {
+  const updateOnline = (index: number, key: string, nextValue: unknown) =>
+    set(
+      "onlineHistory",
+      value.onlineHistory.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: nextValue } : item,
+      ),
+    );
+  const updateExhibition = (index: number, key: string, nextValue: unknown) =>
+    set(
+      "exhibitionHistory",
+      value.exhibitionHistory.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: nextValue } : item,
+      ),
+    );
+  const updateMaterial = (index: number, key: string, nextValue: unknown) =>
+    set(
+      "materials",
+      value.materials.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: nextValue } : item,
+      ),
+    );
+  return (
+    <>
+      <section className="form-group">
+        <h3>Histórico online, TV e VOD</h3>
+        {value.onlineHistory.map((item, index) => (
+          <div className="repeater" key={`${index}-${item.start}`}>
+            <label>
+              Situação
+              <input
+                value={item.status}
+                onChange={(event) =>
+                  updateOnline(index, "status", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Início
+              <input
+                type="date"
+                value={item.start}
+                onChange={(event) =>
+                  updateOnline(index, "start", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Fim
+              <input
+                type="date"
+                value={item.end}
+                onChange={(event) =>
+                  updateOnline(index, "end", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Territórios
+              <input
+                value={item.territories.join(", ")}
+                onChange={(event) =>
+                  updateOnline(
+                    index,
+                    "territories",
+                    event.target.value
+                      .split(",")
+                      .map((entry) => entry.trim())
+                      .filter(Boolean),
+                  )
+                }
+              />
+            </label>
+            <label className="field-wide">
+              Observações
+              <input
+                value={item.notes}
+                onChange={(event) =>
+                  updateOnline(index, "notes", event.target.value)
+                }
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                set(
+                  "onlineHistory",
+                  value.onlineHistory.filter(
+                    (_, itemIndex) => itemIndex !== index,
+                  ),
+                )
+              }
+            >
+              Remover registro online
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            set("onlineHistory", [
+              ...value.onlineHistory,
+              { status: "", start: "", end: "", territories: [], notes: "" },
+            ])
+          }
+        >
+          + Adicionar histórico online
+        </button>
+      </section>
+      <section className="form-group">
+        <h3>Histórico de exibições</h3>
+        {value.exhibitionHistory.map((item, index) => (
+          <div className="repeater" key={item.id}>
+            <label>
+              Data
+              <input
+                type="date"
+                value={item.date}
+                onChange={(event) =>
+                  updateExhibition(index, "date", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Evento
+              <input
+                value={item.event}
+                onChange={(event) =>
+                  updateExhibition(index, "event", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              País
+              <input
+                value={item.country}
+                onChange={(event) =>
+                  updateExhibition(index, "country", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Estado / região
+              <input
+                value={item.region}
+                onChange={(event) =>
+                  updateExhibition(index, "region", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Cidade
+              <input
+                value={item.city}
+                onChange={(event) =>
+                  updateExhibition(index, "city", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Acesso
+              <select
+                value={item.access}
+                onChange={(event) =>
+                  updateExhibition(index, "access", event.target.value)
+                }
+              >
+                {["não informado", "público", "restrito", "privado"].map(
+                  (entry) => (
+                    <option key={entry}>{entry}</option>
+                  ),
+                )}
+              </select>
+            </label>
+            <label>
+              Modalidade
+              <select
+                value={item.modality}
+                onChange={(event) =>
+                  updateExhibition(index, "modality", event.target.value)
+                }
+              >
+                {[
+                  "não informado",
+                  "presencial",
+                  "online",
+                  "híbrida",
+                  "TV/VOD",
+                ].map((entry) => (
+                  <option key={entry}>{entry}</option>
+                ))}
+              </select>
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={item.announced}
+                onChange={(event) =>
+                  updateExhibition(index, "announced", event.target.checked)
+                }
+              />
+              Exibição anunciada publicamente
+            </label>
+            <label className="field-wide">
+              Observações
+              <input
+                value={item.notes}
+                onChange={(event) =>
+                  updateExhibition(index, "notes", event.target.value)
+                }
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                set(
+                  "exhibitionHistory",
+                  value.exhibitionHistory.filter(
+                    (_, itemIndex) => itemIndex !== index,
+                  ),
+                )
+              }
+            >
+              Remover exibição
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            set("exhibitionHistory", [
+              ...value.exhibitionHistory,
+              {
+                id: uid("exhibition"),
+                date: "",
+                event: "",
+                country: "",
+                region: "",
+                city: "",
+                access: "não informado",
+                modality: "não informado",
+                announced: false,
+                notes: "",
+              },
+            ])
+          }
+        >
+          + Adicionar exibição
+        </button>
+      </section>
+      <section className="form-group">
+        <h3>Materiais do filme</h3>
+        {value.materials.map((item, index) => (
+          <div className="repeater" key={item.id}>
+            <label>
+              Tipo
+              <input
+                value={item.type}
+                onChange={(event) =>
+                  updateMaterial(index, "type", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Versão / idioma
+              <input
+                value={item.version}
+                onChange={(event) =>
+                  updateMaterial(index, "version", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Situação
+              <select
+                value={item.status}
+                onChange={(event) =>
+                  updateMaterial(index, "status", event.target.value)
+                }
+              >
+                <option>faltante</option>
+                <option>revisar</option>
+                <option>pronto</option>
+              </select>
+            </label>
+            <label className="field-wide">
+              URL
+              <input
+                value={item.url}
+                onChange={(event) =>
+                  updateMaterial(index, "url", event.target.value)
+                }
+              />
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={item.private}
+                onChange={(event) =>
+                  updateMaterial(index, "private", event.target.checked)
+                }
+              />
+              Material privado
+            </label>
+            <label className="field-wide">
+              Observações
+              <input
+                value={item.notes}
+                onChange={(event) =>
+                  updateMaterial(index, "notes", event.target.value)
+                }
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                set(
+                  "materials",
+                  value.materials.filter((_, itemIndex) => itemIndex !== index),
+                )
+              }
+            >
+              Remover material
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            set("materials", [
+              ...value.materials,
+              {
+                id: uid("material"),
+                type: "",
+                version: "",
+                url: "",
+                private: true,
+                status: "faltante",
+                notes: "",
+              },
+            ])
+          }
+        >
+          + Adicionar material
+        </button>
+      </section>
+    </>
+  );
+}
+
+function SubmissionTrackingEditor({
+  value,
+  set,
+}: {
+  value: Submission;
+  set: (key: keyof Submission, value: unknown) => void;
+}) {
+  const updateList = <
+    K extends "checklist" | "tasks" | "screenings" | "awards",
+  >(
+    key: K,
+    index: number,
+    field: string,
+    nextValue: unknown,
+  ) =>
+    set(
+      key,
+      value[key].map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: nextValue } : item,
+      ),
+    );
+  return (
+    <>
+      <section className="form-group">
+        <h3>Checklist da inscrição</h3>
+        {value.checklist.map((item, index) => (
+          <div className="repeater" key={`${index}-${item.item}`}>
+            <label className="field-wide">
+              Item
+              <input
+                value={item.item}
+                onChange={(event) =>
+                  updateList("checklist", index, "item", event.target.value)
+                }
+              />
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={item.required}
+                onChange={(event) =>
+                  updateList(
+                    "checklist",
+                    index,
+                    "required",
+                    event.target.checked,
+                  )
+                }
+              />
+              Obrigatório
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={item.done}
+                onChange={(event) =>
+                  updateList("checklist", index, "done", event.target.checked)
+                }
+              />
+              Concluído
+            </label>
+            <label className="field-wide">
+              Observações
+              <input
+                value={item.notes}
+                onChange={(event) =>
+                  updateList("checklist", index, "notes", event.target.value)
+                }
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                set(
+                  "checklist",
+                  value.checklist.filter((_, itemIndex) => itemIndex !== index),
+                )
+              }
+            >
+              Remover item
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            set("checklist", [
+              ...value.checklist,
+              { item: "", required: true, done: false, notes: "" },
+            ])
+          }
+        >
+          + Adicionar item
+        </button>
+      </section>
+      <section className="form-group">
+        <h3>Tarefas e alertas</h3>
+        {value.tasks.map((item, index) => (
+          <div className="repeater" key={item.id}>
+            <label className="field-wide">
+              Tarefa
+              <input
+                value={item.title}
+                onChange={(event) =>
+                  updateList("tasks", index, "title", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Prazo
+              <input
+                type="date"
+                value={item.due}
+                onChange={(event) =>
+                  updateList("tasks", index, "due", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Tipo
+              <input
+                value={item.kind}
+                onChange={(event) =>
+                  updateList("tasks", index, "kind", event.target.value)
+                }
+              />
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={item.done}
+                onChange={(event) =>
+                  updateList("tasks", index, "done", event.target.checked)
+                }
+              />
+              Concluída
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                set(
+                  "tasks",
+                  value.tasks.filter((_, itemIndex) => itemIndex !== index),
+                )
+              }
+            >
+              Remover tarefa
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            set("tasks", [
+              ...value.tasks,
+              { id: uid("task"), title: "", due: "", done: false, kind: "" },
+            ])
+          }
+        >
+          + Adicionar tarefa
+        </button>
+      </section>
+      <section className="form-group">
+        <h3>Sessões e prêmios</h3>
+        {value.screenings.map((item, index) => (
+          <div className="repeater" key={item.id}>
+            <strong>Sessão</strong>
+            <label>
+              Data
+              <input
+                type="date"
+                value={item.date}
+                onChange={(event) =>
+                  updateList("screenings", index, "date", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Local
+              <input
+                value={item.place}
+                onChange={(event) =>
+                  updateList("screenings", index, "place", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Modalidade
+              <input
+                value={item.modality}
+                onChange={(event) =>
+                  updateList(
+                    "screenings",
+                    index,
+                    "modality",
+                    event.target.value,
+                  )
+                }
+              />
+            </label>
+            <label className="field-wide">
+              Observações
+              <input
+                value={item.notes}
+                onChange={(event) =>
+                  updateList("screenings", index, "notes", event.target.value)
+                }
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                set(
+                  "screenings",
+                  value.screenings.filter(
+                    (_, itemIndex) => itemIndex !== index,
+                  ),
+                )
+              }
+            >
+              Remover sessão
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            set("screenings", [
+              ...value.screenings,
+              {
+                id: uid("screening"),
+                date: "",
+                place: "",
+                modality: "",
+                notes: "",
+              },
+            ])
+          }
+        >
+          + Adicionar sessão
+        </button>
+        {value.awards.map((item, index) => (
+          <div className="repeater" key={item.id}>
+            <strong>Prêmio</strong>
+            <label>
+              Título
+              <input
+                value={item.title}
+                onChange={(event) =>
+                  updateList("awards", index, "title", event.target.value)
+                }
+              />
+            </label>
+            <label>
+              Data
+              <input
+                type="date"
+                value={item.date}
+                onChange={(event) =>
+                  updateList("awards", index, "date", event.target.value)
+                }
+              />
+            </label>
+            <label className="field-wide">
+              Observações
+              <input
+                value={item.notes}
+                onChange={(event) =>
+                  updateList("awards", index, "notes", event.target.value)
+                }
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                set(
+                  "awards",
+                  value.awards.filter((_, itemIndex) => itemIndex !== index),
+                )
+              }
+            >
+              Remover prêmio
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            set("awards", [
+              ...value.awards,
+              { id: uid("award"), title: "", date: "", notes: "" },
+            ])
+          }
+        >
+          + Adicionar prêmio
+        </button>
+      </section>
+    </>
+  );
+}
+
 function DeadlineEditor({
   value,
   set,
@@ -776,6 +2486,27 @@ function DeadlineEditor({
               onChange={(e) => update(i, "timezone", e.target.value)}
             />
           </label>
+          <label>
+            Rótulo original
+            <input
+              value={d.originalLabel}
+              onChange={(e) => update(i, "originalLabel", e.target.value)}
+            />
+          </label>
+          <label>
+            ID da fonte
+            <input
+              value={d.sourceId}
+              onChange={(e) => update(i, "sourceId", e.target.value)}
+            />
+          </label>
+          <label>
+            Substitui o prazo
+            <input
+              value={d.supersedes}
+              onChange={(e) => update(i, "supersedes", e.target.value)}
+            />
+          </label>
           <label className="check">
             <input
               type="checkbox"
@@ -803,6 +2534,9 @@ function DeadlineEditor({
               time: "",
               timezone: "America/Sao_Paulo",
               confirmed: false,
+              originalLabel: "prazo final",
+              sourceId: "",
+              supersedes: "",
             },
           ])
         }
@@ -881,6 +2615,45 @@ function FeeEditor({ value, set }: { value: Fee[]; set: (v: Fee[]) => void }) {
               onChange={(e) => update(i, "waiver", e.target.value)}
             />
           </label>
+          <label>
+            Aplica-se a
+            <input
+              value={d.appliesTo.join(", ")}
+              onChange={(e) =>
+                update(
+                  i,
+                  "appliesTo",
+                  e.target.value
+                    .split(",")
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                )
+              }
+            />
+          </label>
+          <label>
+            Taxa da plataforma
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={d.platformAmount ?? ""}
+              onChange={(e) =>
+                update(
+                  i,
+                  "platformAmount",
+                  e.target.value === "" ? null : Number(e.target.value),
+                )
+              }
+            />
+          </label>
+          <label>
+            ID da fonte
+            <input
+              value={d.sourceId}
+              onChange={(e) => update(i, "sourceId", e.target.value)}
+            />
+          </label>
           <label className="field-wide">
             Observações
             <input
@@ -909,6 +2682,9 @@ function FeeEditor({ value, set }: { value: Fee[]; set: (v: Fee[]) => void }) {
               discount: "",
               waiver: "",
               notes: "",
+              appliesTo: [],
+              platformAmount: null,
+              sourceId: "",
             },
           ])
         }
@@ -932,6 +2708,13 @@ function SourcesEditor({
       <h3>Fontes e rastreabilidade</h3>
       {value.map((s, i) => (
         <div className="repeater" key={i}>
+          <label className="field-wide">
+            Título da fonte
+            <input
+              value={s.title}
+              onChange={(e) => update(i, "title", e.target.value)}
+            />
+          </label>
           <label className="field-wide">
             URL
             <input
@@ -965,6 +2748,14 @@ function SourcesEditor({
             />
           </label>
           <label>
+            Acessado em
+            <input
+              type="date"
+              value={s.accessedAt}
+              onChange={(e) => update(i, "accessedAt", e.target.value)}
+            />
+          </label>
+          <label>
             Confiança
             <select
               value={s.confidence}
@@ -986,6 +2777,38 @@ function SourcesEditor({
                   e.target.value.split(",").map((x) => x.trim()),
                 )
               }
+            />
+          </label>
+          <label>
+            Estado da evidência
+            <select
+              value={s.evidenceState}
+              onChange={(e) => update(i, "evidenceState", e.target.value)}
+            >
+              {[
+                "pendente",
+                "confirmado na edição atual",
+                "confirmado em edição anterior",
+                "estimativa histórica",
+                "informação conflitante",
+                "não localizado",
+              ].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Edição / chamada
+            <input
+              value={s.editionLabel}
+              onChange={(e) => update(i, "editionLabel", e.target.value)}
+            />
+          </label>
+          <label>
+            Seção / página
+            <input
+              value={s.section}
+              onChange={(e) => update(i, "section", e.target.value)}
             />
           </label>
           <label className="field-wide">
@@ -1010,10 +2833,16 @@ function SourcesEditor({
           set([
             ...value,
             {
+              id: uid("source"),
               url: "",
+              title: "",
               type: "oficial",
               checkedAt: "",
+              accessedAt: "",
               confidence: "não verificado",
+              evidenceState: "pendente",
+              editionLabel: "",
+              section: "",
               note: "",
               fields: [],
             },

@@ -1,123 +1,291 @@
 import type { Call, Film } from "../types";
+
 export interface RuleResult {
   rule: string;
   state: "ok" | "conflict" | "unknown";
   detail: string;
+  sourceIds: string[];
 }
-export function eligibility(f: Film, c: Call) {
+
+const sourcesFor = (call: Call, fields: string[]) =>
+  call.sources.filter(
+    (source) =>
+      source.evidenceState === "confirmado na edição atual" &&
+      fields.some((field) => source.fields.includes(field)),
+  );
+
+const duration = (seconds: number) =>
+  `${Math.floor(seconds / 60)}min${String(seconds % 60).padStart(2, "0")}s`;
+
+export function eligibility(film: Film, call: Call) {
   const rules: RuleResult[] = [];
-  const add = (rule: string, state: RuleResult["state"], detail: string) =>
-    rules.push({ rule, state, detail });
+  const add = (
+    rule: string,
+    state: RuleResult["state"],
+    detail: string,
+    fields: string[] = [],
+  ) =>
+    rules.push({
+      rule,
+      state,
+      detail,
+      sourceIds: sourcesFor(call, fields).map((source) => source.id),
+    });
+  const verified = (fields: string[]) =>
+    call.confidence === "confirmado" || sourcesFor(call, fields).length > 0;
+
   add(
     "Edição e fontes",
-    c.confidence === "confirmado" ? "ok" : "unknown",
-    c.confidence === "confirmado"
-      ? "Regras verificadas nesta edição"
-      : "Regras parciais, antigas ou ainda não verificadas",
-  );
-  add(
-    "Formato",
-    f.format && c.formats.length
-      ? c.formats.includes(f.format)
-        ? "ok"
-        : "conflict"
+    call.confidence === "confirmado" ||
+      call.sources.some(
+        (source) => source.evidenceState === "confirmado na edição atual",
+      )
+      ? "ok"
       : "unknown",
-    `${f.format || "Filme sem formato"} · aceitos: ${c.formats.join(", ") || "não confirmado"}`,
+    call.confidence === "confirmado"
+      ? "Regras verificadas para esta chamada e edição."
+      : "A chamada contém regras antigas, parciais ou ainda não verificadas.",
   );
-  if (f.minutes === null || c.maxMinutes === null)
-    add(
-      "Duração",
-      "unknown",
-      "Informe a duração do filme e o limite da chamada",
-    );
-  else
-    add(
-      "Duração",
-      f.minutes <= c.maxMinutes &&
-        (c.minMinutes === null || f.minutes >= c.minMinutes)
+
+  const formatVerified = verified(["formats"]);
+  add(
+    "Formato por duração",
+    !film.format || !call.formats.length || !formatVerified
+      ? "unknown"
+      : call.formats.includes(film.format)
         ? "ok"
         : "conflict",
-      `${f.minutes} min · ${c.minMinutes ?? 0}–${c.maxMinutes} min`,
-    );
-  if (f.year === null || c.minYear === null || c.maxYear === null)
+    `${film.format || "Filme sem formato"} · chamada: ${call.formats.join(", ") || "não confirmado"}`,
+    ["formats"],
+  );
+
+  const filmSeconds =
+    film.durationSeconds ??
+    (film.minutes === null ? null : Math.round(film.minutes * 60));
+  const minSeconds =
+    call.minSeconds ??
+    (call.minMinutes === null ? null : Math.round(call.minMinutes * 60));
+  const maxSeconds =
+    call.maxSeconds ??
+    (call.maxMinutes === null ? null : Math.round(call.maxMinutes * 60));
+  if (
+    filmSeconds === null ||
+    maxSeconds === null ||
+    !verified(["duration", "minMinutes", "maxMinutes"])
+  )
     add(
-      "Ano de produção",
+      "Duração precisa",
       "unknown",
-      "Faixa de anos ou ano do filme incompleto",
+      "Falta a duração em segundos do filme ou um limite verificado da chamada.",
+      ["duration", "minMinutes", "maxMinutes"],
+    );
+  else {
+    const minOk =
+      minSeconds === null ||
+      (call.minInclusive
+        ? filmSeconds >= minSeconds
+        : filmSeconds > minSeconds);
+    const maxOk = call.maxInclusive
+      ? filmSeconds <= maxSeconds
+      : filmSeconds < maxSeconds;
+    add(
+      "Duração precisa",
+      minOk && maxOk ? "ok" : "conflict",
+      `${duration(filmSeconds)} · limite ${minSeconds === null ? "sem mínimo" : duration(minSeconds)}–${duration(maxSeconds)}${call.maxInclusive ? " inclusive" : " exclusivo"}${call.creditsIncluded === null ? " · créditos não esclarecidos" : call.creditsIncluded ? " · créditos incluídos" : " · créditos excluídos"}`,
+      ["duration", "minMinutes", "maxMinutes"],
+    );
+  }
+
+  const filmYear = film.completionDate
+    ? Number(film.completionDate.slice(0, 4))
+    : film.year;
+  if (
+    filmYear === null ||
+    call.minYear === null ||
+    call.maxYear === null ||
+    !verified(["minYear", "maxYear", "productionYear"])
+  )
+    add(
+      "Produção/conclusão",
+      "unknown",
+      "A data do filme ou a faixa de produção da chamada precisa ser confirmada.",
+      ["minYear", "maxYear", "productionYear"],
     );
   else
     add(
-      "Ano de produção",
-      f.year >= c.minYear && f.year <= c.maxYear ? "ok" : "conflict",
-      `${f.year} · ${c.minYear}–${c.maxYear}`,
+      "Produção/conclusão",
+      filmYear >= call.minYear && filmYear <= call.maxYear ? "ok" : "conflict",
+      `${filmYear} · chamada: ${call.minYear}–${call.maxYear}`,
+      ["minYear", "maxYear", "productionYear"],
     );
+
+  const filmLanguages = film.languages.length ? film.languages : film.genres;
+  const callLanguages = call.languages.length ? call.languages : call.genres;
   add(
     "Linguagem",
-    c.genresConfirmed && f.genres.length && c.genres.length
-      ? f.genres.some((g) => c.genres.includes(g))
+    !filmLanguages.length ||
+      !callLanguages.length ||
+      !call.genresConfirmed ||
+      !verified(["languages", "genres"])
+      ? "unknown"
+      : filmLanguages.some((language) =>
+            callLanguages.includes(language as never),
+          )
         ? "ok"
-        : "conflict"
-      : "unknown",
-    `Filme: ${f.genres.join(", ") || "não informado"} · chamada: ${c.genres.join(", ") || "não confirmado"}`,
+        : "conflict",
+    `Filme: ${filmLanguages.join(", ") || "não informado"} · chamada: ${callLanguages.join(", ") || "não confirmado"}`,
+    ["languages", "genres"],
   );
-  const eligibleCountries = [f.country, ...f.coproduction].filter(Boolean);
-  if (!c.territoriesConfirmed || !f.country)
-    add("Território", "unknown", "Territorialidade não confirmada");
+
+  const eligibleCountries = [film.country, ...film.coproduction].filter(
+    Boolean,
+  );
+  if (
+    !call.territoriesConfirmed ||
+    !film.country ||
+    !verified(["countries", "regions", "territoriesConfirmed"])
+  )
+    add(
+      "Território elegível",
+      "unknown",
+      "A origem/coprodução do filme ou a territorialidade da chamada não está confirmada.",
+      ["countries", "regions", "territoriesConfirmed"],
+    );
   else {
     const countryOk =
-      !c.countries.length ||
-      c.countries.some((x) =>
-        eligibleCountries.some((y) => x.toLowerCase() === y.toLowerCase()),
+      !call.countries.length ||
+      call.countries.some((country) =>
+        eligibleCountries.some(
+          (candidate) => country.toLowerCase() === candidate.toLowerCase(),
+        ),
       );
     const regionOk =
-      !c.regions.length || (!!f.region && c.regions.includes(f.region));
+      !call.regions.length ||
+      (!!film.region && call.regions.includes(film.region));
     add(
-      "Território",
-      c.regions.length && !f.region
+      "Território elegível",
+      call.regions.length && !film.region
         ? "unknown"
         : countryOk && regionOk
           ? "ok"
           : "conflict",
-      `${f.country}${f.region ? " / " + f.region : ""} · ${[...c.countries, ...c.regions].join(", ") || "sem restrição territorial"}`,
+      `${film.country}${film.region ? ` / ${film.region}` : ""} · chamada: ${[...call.countries, ...call.regions].join(", ") || "sem restrição confirmada"}`,
+      ["countries", "regions", "territoriesConfirmed"],
     );
   }
-  if (c.premiere === "nenhuma")
-    add("Estreia", "ok", "Sem exigência de estreia");
-  else if (c.premiere === "mundial")
+
+  const premiereVerified = verified(["premiere"]);
+  const premiereRequirement =
+    call.premiereRequirement !== "desconhecida"
+      ? call.premiereRequirement
+      : call.confidence === "confirmado" && call.premiere === "nenhuma"
+        ? "sem exigência confirmada"
+        : call.confidence === "confirmado" && call.premiere === "preferência"
+          ? "preferencial"
+          : call.confidence === "confirmado" &&
+              call.premiere !== "não confirmado"
+            ? "obrigatória"
+            : "desconhecida";
+  const heldExhibitions = film.exhibitionHistory.filter(
+    (exhibition) => !exhibition.announced,
+  );
+  if (premiereRequirement === "desconhecida" || !premiereVerified)
     add(
       "Estreia",
-      f.worldPremiereAvailable === "sim"
-        ? "ok"
-        : f.worldPremiereAvailable === "não"
-          ? "conflict"
+      "unknown",
+      "A exigência de estreia desta chamada não está verificada.",
+      ["premiere"],
+    );
+  else if (
+    premiereRequirement === "sem exigência confirmada" ||
+    premiereRequirement === "preferencial"
+  )
+    add(
+      "Estreia",
+      "ok",
+      premiereRequirement === "preferencial"
+        ? "A estreia é preferência curatorial, não obrigação objetiva."
+        : "A chamada confirma ausência de exigência de estreia.",
+      ["premiere"],
+    );
+  else if (call.premiere === "mundial")
+    add(
+      "Estreia",
+      heldExhibitions.length > 0 || film.worldPremiereAvailable === "não"
+        ? "conflict"
+        : film.worldPremiereAvailable === "sim"
+          ? "ok"
           : "unknown",
-      "Exige estreia mundial; confira o histórico de exibições",
+      heldExhibitions.length
+        ? `Há ${heldExhibitions.length} exibição(ões) realizada(s) no histórico do filme.`
+        : "Exige estreia mundial; confira também exibições anunciadas e compromissos assumidos.",
+      ["premiere"],
     );
-  else
+  else {
+    const territory = call.premiereTerritory.trim();
+    const used = territory
+      ? heldExhibitions.some((exhibition) =>
+          [exhibition.country, exhibition.region, exhibition.city]
+            .map((value) => value.toLowerCase())
+            .includes(territory.toLowerCase()),
+        )
+      : false;
     add(
       "Estreia",
-      "unknown",
-      `Exigência: ${c.premiere}; revisar histórico com o regulamento`,
+      used ? "conflict" : "unknown",
+      territory
+        ? `${call.premiere} em ${territory}; ausência no histórico não basta para confirmar disponibilidade.`
+        : `${call.premiere}; o território e o histórico precisam de revisão.`,
+      ["premiere"],
     );
-  if (c.online === "permitido")
-    add("Disponibilidade online", "ok", "Exibição online anterior permitida");
-  else if (c.online === "proibido" && f.online === "permitido")
+  }
+
+  const onlineVerified = verified(["online"]);
+  const publicOnline = [
+    "publicação pública atual",
+    "publicação pública anterior",
+    "TV/VOD",
+  ].includes(film.onlineStatus);
+  if (call.online === "não confirmado" || !onlineVerified)
     add(
-      "Disponibilidade online",
-      "conflict",
-      "Filme disponível publicamente; chamada proíbe disponibilidade online",
+      "Histórico online",
+      "unknown",
+      "A regra da chamada sobre internet/TV/VOD não está confirmada.",
+      ["online"],
+    );
+  else if (call.online === "permitido")
+    add(
+      "Histórico online",
+      "ok",
+      "A chamada permite o histórico online informado; confira condições territoriais.",
+      ["online"],
+    );
+  else if (call.online === "proibido")
+    add(
+      "Histórico online",
+      film.onlineStatus === "não informado"
+        ? "unknown"
+        : publicOnline
+          ? "conflict"
+          : "ok",
+      `Filme: ${film.onlineStatus}. Chamada: publicação online proibida.`,
+      ["online"],
     );
   else
     add(
-      "Disponibilidade online",
+      "Histórico online",
       "unknown",
-      "Conferir publicação prévia e as restrições do regulamento",
+      `A chamada impõe restrições: ${call.onlineConditions || "condições não detalhadas"}.`,
+      ["online"],
     );
-  if (c.restrictions) add("Outras restrições", "unknown", c.restrictions);
-  const status = rules.some((r) => r.state === "conflict")
-    ? "possível conflito"
-    : rules.some((r) => r.state === "unknown")
-      ? "faltam informações"
-      : "provavelmente compatível";
+
+  if (call.restrictions)
+    add("Outras restrições", "unknown", call.restrictions, ["restrictions"]);
+
+  const status = rules.some((rule) => rule.state === "conflict")
+    ? "incompatível"
+    : rules.some((rule) => rule.state === "unknown")
+      ? "depende de confirmação"
+      : "compatível pelas regras verificadas";
   return { status, rules };
 }

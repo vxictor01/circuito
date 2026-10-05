@@ -11,9 +11,10 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:ui": "playwright test",
-    "build": "npm run typecheck && vite build && node scripts/build-pwa.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/build-pwa.mjs",
     "check:dist": "node scripts/check-dist.mjs",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "migrate:catalog": "node --import tsx scripts/migrate-catalog-v4.ts"
   },
   "dependencies": {
     "react": "19.2.0",

@@ -12,15 +12,32 @@ import {
 } from "../components/Shared";
 import { EntityForm } from "../components/EntityForm";
 import { type Film } from "../types";
+const durationLabel = (film: Film) => {
+  if (film.durationSeconds !== null) {
+    const minutes = Math.floor(film.durationSeconds / 60);
+    const seconds = film.durationSeconds % 60;
+    return `${minutes}min${seconds ? `${String(seconds).padStart(2, "0")}s` : ""}`;
+  }
+  return film.minutes === null
+    ? "DURAÇÃO NÃO INFORMADA"
+    : `${film.minutes} MIN`;
+};
 export function Films() {
   const { db } = useStore();
   const [edit, setEdit] = useState<Film | null>(null);
   const [query, setQuery] = useState("");
   const films = db.films.filter((f) =>
     norm(
-      [f.title, f.internationalTitle, f.director, ...f.genres, f.notes].join(
-        " ",
-      ),
+      [
+        f.title,
+        f.internationalTitle,
+        f.director,
+        ...f.languages,
+        ...f.approaches,
+        ...f.contentGenres,
+        ...f.themes,
+        f.notes,
+      ].join(" "),
     ).includes(norm(query)),
   );
   return (
@@ -56,14 +73,15 @@ export function Films() {
                 <div>
                   <p className="eyebrow">
                     {f.year ?? "ANO NÃO INFORMADO"} /{" "}
-                    {f.format || "FORMATO NÃO INFORMADO"} / {f.minutes ?? "?"}{" "}
-                    MIN
+                    {f.format || "FORMATO NÃO INFORMADO"} / {durationLabel(f)}
                   </p>
                   <h2>
                     <a href={`#/filmes/${f.id}`}>{f.title}</a>
                   </h2>
                   <p className="muted">{f.internationalTitle || f.director}</p>
-                  <Tags tags={f.genres} />
+                  <Tags
+                    tags={[...f.languages, ...f.approaches, ...f.contentGenres]}
+                  />
                 </div>
                 <div className="film-row-stats">
                   <strong>{ss.length}</strong>
@@ -116,32 +134,36 @@ export function FilmDetail({ id }: { id: string }) {
       </a>
       <Heading
         title={f.title}
-        eyebrow={`${f.year ?? "ANO NÃO INFORMADO"} / ${f.format || "FORMATO NÃO INFORMADO"} / ${f.minutes ?? "?"} MIN`}
+        eyebrow={`${f.year ?? "ANO NÃO INFORMADO"} / ${f.format || "FORMATO NÃO INFORMADO"} / ${durationLabel(f)}`}
         description={f.internationalTitle}
         actions={<button onClick={() => setEdit(true)}>Editar ficha</button>}
       />
-      <Tags tags={f.genres} />
+      <Tags
+        tags={[
+          ...f.languages,
+          ...f.approaches,
+          ...f.contentGenres,
+          ...f.themes,
+        ]}
+      />
       <Stats
         items={[
           { label: "Registros de circulação", value: ss.length },
           {
             label: "Seleções",
-            value: ss.filter((s) =>
-              [
-                "selecionado",
-                "finalista",
-                "semifinalista",
-                "premiado",
-              ].includes(s.status),
-            ).length,
+            value: ss.filter((s) => s.resultStatus === "selecionado").length,
           },
           {
             label: "Recusas",
-            value: ss.filter((s) => s.status === "não selecionado").length,
+            value: ss.filter((s) => s.resultStatus === "não selecionado")
+              .length,
           },
           {
             label: "Prêmios",
-            value: ss.filter((s) => s.status === "premiado").length,
+            value: ss.reduce(
+              (total, s) => total + s.awards.length + (s.award ? 1 : 0),
+              0,
+            ),
           },
         ]}
       />
@@ -163,7 +185,7 @@ export function FilmDetail({ id }: { id: string }) {
                 ["Legendas", f.subtitles.join(", ")],
                 ["CPB", f.cpb],
                 ["Estreia mundial disponível", f.worldPremiereAvailable],
-                ["Disponibilidade online", f.online],
+                ["Histórico online", f.onlineStatus],
                 ["Primeira exibição", f.premiereDate],
               ].map(([k, v]) => (
                 <div key={k}>
@@ -173,6 +195,39 @@ export function FilmDetail({ id }: { id: string }) {
               ))}
             </dl>
           </section>
+          {f.exhibitionHistory.length > 0 && (
+            <section className="panel">
+              <h2>Exibições públicas e restritas</h2>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Evento</th>
+                      <th>Local</th>
+                      <th>Acesso / modalidade</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {f.exhibitionHistory.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.date || "—"}</td>
+                        <th scope="row">{item.event || "—"}</th>
+                        <td>
+                          {[item.city, item.region, item.country]
+                            .filter(Boolean)
+                            .join(", ") || "—"}
+                        </td>
+                        <td>
+                          {item.access} · {item.modality}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
           <section className="panel">
             <header className="section-heading">
               <h2>Histórico de circulação</h2>
@@ -206,12 +261,12 @@ export function FilmDetail({ id }: { id: string }) {
                         <td>
                           <Badge
                             tone={
-                              ["selecionado", "premiado"].includes(s.status)
+                              s.resultStatus === "selecionado"
                                 ? "positive"
                                 : "muted"
                             }
                           >
-                            {s.status}
+                            {s.resultStatus}
                           </Badge>
                         </td>
                         <td>{s.award || "—"}</td>
@@ -238,6 +293,34 @@ export function FilmDetail({ id }: { id: string }) {
               ))
             ) : (
               <p className="muted">Adicione seus links em “Editar ficha”.</p>
+            )}
+            {f.materials.length > 0 && (
+              <div>
+                <h3>Controle de materiais</h3>
+                {f.materials.map((material) => (
+                  <p key={material.id}>
+                    {material.url ? (
+                      <ExternalLink url={material.url}>
+                        {material.type || "Material"}
+                      </ExternalLink>
+                    ) : (
+                      <strong>{material.type || "Material"}</strong>
+                    )}{" "}
+                    <Badge
+                      tone={
+                        material.status === "pronto"
+                          ? "positive"
+                          : material.status === "faltante"
+                            ? "warning"
+                            : "unknown"
+                      }
+                    >
+                      {material.status}
+                    </Badge>
+                    {material.version ? ` · ${material.version}` : ""}
+                  </p>
+                ))}
+              </div>
             )}
             <p className="small muted">
               Links privados são guardados somente no navegador e no seu backup.

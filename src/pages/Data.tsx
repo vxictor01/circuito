@@ -2,7 +2,12 @@ import { useState } from "react";
 import { useStore } from "../store";
 import { type Database, type ImportReport } from "../types";
 import { readImport, mergeDatabases } from "../migrations";
-import { backupText, downloadText, parseBackup } from "../utils/backup";
+import {
+  backupText,
+  downloadText,
+  parseBackup,
+  publicExportText,
+} from "../utils/backup";
 import { Heading, Stats, Badge } from "../components/Shared";
 export function Data() {
   const { db, change, restore, setNotice } = useStore();
@@ -92,6 +97,40 @@ export function Data() {
     }
   }
   const lastReport = report || db.archive.importReports.at(-1);
+  const catalogUpdates = db.archive.catalogUpdates.filter(
+    (update) => !update.resolvedAt,
+  );
+  const editHistory = [...(db.archive.editHistory || [])].reverse();
+  async function resolveCatalogUpdate(
+    update: Database["archive"]["catalogUpdates"][number],
+    apply: boolean,
+  ) {
+    await change((latest) => {
+      const saved = latest.archive.catalogUpdates.find(
+        (item) =>
+          item.detectedAt === update.detectedAt &&
+          (item.entityId || item.festivalId) ===
+            (update.entityId || update.festivalId),
+      );
+      if (!saved) return;
+      if (apply && saved.incoming) {
+        const id = saved.entityId || saved.festivalId;
+        const target =
+          saved.entityType === "edition"
+            ? latest.editions.find((item) => item.id === id)
+            : saved.entityType === "call"
+              ? latest.calls.find((item) => item.id === id)
+              : latest.festivals.find((item) => item.id === id);
+        if (target) Object.assign(target, saved.incoming);
+      }
+      saved.resolvedAt = new Date().toISOString();
+    });
+    setNotice(
+      apply
+        ? "Atualização pública aplicada; seus campos pessoais foram preservados."
+        : "Sua versão foi mantida para este conflito do catálogo.",
+    );
+  }
   return (
     <>
       <Heading
@@ -120,6 +159,17 @@ export function Data() {
           </p>
           <button className="primary" disabled={busy} onClick={exportBackup}>
             Exportar backup
+          </button>
+          <button
+            disabled={busy}
+            onClick={() =>
+              downloadText(
+                `Circuito_dados_publicos_${new Date().toISOString().slice(0, 10)}.json`,
+                publicExportText(db),
+              )
+            }
+          >
+            Exportar somente dados públicos
           </button>
           <p className="small muted">
             Última exportação:{" "}
@@ -239,6 +289,85 @@ export function Data() {
           <Report report={lastReport} />
         </section>
       )}
+      <section className="panel">
+        <p className="eyebrow">CATÁLOGO PÚBLICO / REVISÃO</p>
+        <h2>Atualizações sem sobrescrever suas escolhas.</h2>
+        <p>
+          Quando o catálogo publicado muda um registro que já existe neste
+          navegador, o Circuito preserva a versão local e mostra a diferença
+          para sua decisão. Favoritos, notas e prioridades pessoais nunca são
+          incluídos na substituição.
+        </p>
+        {catalogUpdates.length ? (
+          <div className="import-report">
+            {catalogUpdates.map((update) => (
+              <div
+                className="notice-inline"
+                key={`${update.detectedAt}-${update.entityType}-${update.entityId || update.festivalId}`}
+              >
+                <strong>
+                  {db.festivals.find(
+                    (festival) => festival.id === update.festivalId,
+                  )?.name || update.festivalId}
+                </strong>
+                <p>
+                  {update.entityType || "festival"} · campos alterados:{" "}
+                  {update.fields.join(", ")}
+                </p>
+                <div className="actions">
+                  <button
+                    onClick={() => void resolveCatalogUpdate(update, false)}
+                  >
+                    Manter minha versão
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={!update.incoming}
+                    onClick={() => void resolveCatalogUpdate(update, true)}
+                  >
+                    Aplicar dados públicos
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">
+            Nenhuma diferença pendente do catálogo público.
+          </p>
+        )}
+      </section>
+      <section className="panel">
+        <p className="eyebrow">HISTÓRICO LOCAL / EDIÇÃO MANUAL</p>
+        <h2>Alterações anteriores preservadas.</h2>
+        <p>
+          Ao editar um registro existente, o Circuito guarda localmente a versão
+          anterior e os campos alterados. O histórico completo acompanha o
+          backup privado e não entra na exportação pública.
+        </p>
+        {editHistory.length ? (
+          <div className="import-report">
+            {editHistory.slice(0, 20).map((entry, index) => (
+              <details key={`${entry.changedAt}-${entry.entityId}-${index}`}>
+                <summary>
+                  {entry.table} · {entry.entityId} ·{" "}
+                  {new Date(entry.changedAt).toLocaleString("pt-BR")}
+                </summary>
+                <p>Campos alterados: {entry.changedFields.join(", ")}.</p>
+                <pre>{JSON.stringify(entry.before, null, 2)}</pre>
+              </details>
+            ))}
+            {editHistory.length > 20 && (
+              <p className="small muted">
+                Mostrando as 20 alterações mais recentes de {editHistory.length}
+                .
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="muted">Nenhuma edição manual registrada nesta base.</p>
+        )}
+      </section>
       <section className="panel privacy">
         <p className="eyebrow">PRIVACIDADE / ARMAZENAMENTO</p>
         <h2>Onde meus dados ficam?</h2>

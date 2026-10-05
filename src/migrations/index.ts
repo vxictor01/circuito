@@ -7,6 +7,7 @@ import {
 import { migrateLegacy, norm, websiteKey } from "./legacy";
 import { validateDatabase } from "../utils/validation";
 import { emptyDatabase } from "../utils/defaults";
+import { migrateV3ToV4 } from "./v4";
 export function readImport(input: unknown): {
   db: Database;
   report: ImportReport;
@@ -20,12 +21,14 @@ export function readImport(input: unknown): {
     !Array.isArray(raw.editions)
   ) {
     const r = migrateLegacy(raw);
-    validateDatabase(r.db);
-    return r;
+    const db = migrateV3ToV4(r.db);
+    validateDatabase(db);
+    return { ...r, db };
   }
-  const db = structuredClone(raw) as unknown as Database;
+  let db = structuredClone(raw) as unknown as Database;
+  const originalVersion = Number(raw.schemaVersion);
   if (raw.schemaVersion === 2) {
-    db.schemaVersion = SCHEMA_VERSION;
+    (db as unknown as Legacy).schemaVersion = 3;
     db.festivals = db.festivals.map((f) => ({
       ...f,
       aliases: f.aliases || [],
@@ -33,6 +36,7 @@ export function readImport(input: unknown): {
     db.settings = { ...emptyDatabase().settings, ...db.settings };
     db.archive = db.archive || emptyDatabase().archive;
   }
+  if (originalVersion === 2 || originalVersion === 3) db = migrateV3ToV4(db);
   if (db.schemaVersion !== SCHEMA_VERSION)
     throw new Error(
       `Schema ${raw.schemaVersion} não suportado. Atualize o Circuito antes de restaurar este backup.`,
@@ -45,9 +49,16 @@ export function readImport(input: unknown): {
       imported: db.festivals.length,
       merged: 0,
       convertedFields:
-        raw.schemaVersion === 2
-          ? ["Schema 2 → 3: aliases e configurações adicionados"]
-          : [],
+        originalVersion === 2
+          ? [
+              "Schema 2 → 3: aliases e configurações adicionados",
+              "Schema 3 → 4: localidades, taxonomias, pesquisa e acompanhamento normalizados",
+            ]
+          : originalVersion === 3
+            ? [
+                "Schema 3 → 4: localidades, taxonomias, pesquisa e acompanhamento normalizados",
+              ]
+            : [],
       ambiguous: [],
       preserved: ["Todas as entidades e arquivo de preservação"],
       errors: [],
@@ -113,6 +124,10 @@ export function mergeDatabases(
     ).values(),
   ];
   out.archive.importReports.push(...incoming.archive.importReports);
+  out.archive.editHistory = [
+    ...(out.archive.editHistory || []),
+    ...(incoming.archive.editHistory || []),
+  ].slice(-200);
   out.archive.legacyHistory = [
     ...(out.archive.legacyHistory || []),
     ...(incoming.archive.legacyHistory || []),
@@ -132,6 +147,119 @@ export function mergeDatabases(
     catalogVersion:
       current.settings.catalogVersion || incoming.settings.catalogVersion,
   };
+  validateDatabase(out);
+  return out;
+}
+
+const catalogFestivalPersonalFields = new Set([
+  "favorite",
+  "priority",
+  "basePriority",
+  "personalNotes",
+]);
+
+const changedCatalogFields = (
+  current: Legacy,
+  incoming: Legacy,
+  excluded = new Set<string>(),
+) => {
+  const values: Legacy = {};
+  for (const [field, value] of Object.entries(incoming)) {
+    if (field === "id" || field === "legacy" || excluded.has(field)) continue;
+    if (JSON.stringify(current[field]) !== JSON.stringify(value))
+      values[field] = structuredClone(value) as never;
+  }
+  return values;
+};
+
+export function mergeCatalogDatabase(
+  current: Database,
+  incoming: Database,
+  detectedAt = new Date().toISOString(),
+) {
+  const updates: Database["archive"]["catalogUpdates"] = [];
+  const festivalIds = new Map<string, string>();
+  for (const festival of incoming.festivals) {
+    const key = websiteKey(festival.website);
+    const match = current.festivals.find(
+      (item) =>
+        item.id === festival.id ||
+        (norm(item.name) === norm(festival.name) &&
+          norm(item.country) === norm(festival.country)) ||
+        (key && websiteKey(item.website) === key) ||
+        item.aliases.some((alias) => norm(alias) === norm(festival.name)),
+    );
+    festivalIds.set(festival.id, match?.id || festival.id);
+    if (!match) continue;
+    const values = changedCatalogFields(
+      match as unknown as Legacy,
+      festival as unknown as Legacy,
+      catalogFestivalPersonalFields,
+    );
+    if (Object.keys(values).length)
+      updates.push({
+        festivalId: match.id,
+        detectedAt,
+        fields: Object.keys(values),
+        entityType: "festival",
+        entityId: match.id,
+        incoming: values,
+      });
+  }
+  for (const edition of incoming.editions) {
+    const match = current.editions.find((item) => item.id === edition.id);
+    if (!match) continue;
+    const values = changedCatalogFields(
+      match as unknown as Legacy,
+      edition as unknown as Legacy,
+    );
+    if (Object.keys(values).length)
+      updates.push({
+        festivalId: festivalIds.get(edition.festivalId) || edition.festivalId,
+        detectedAt,
+        fields: Object.keys(values),
+        entityType: "edition",
+        entityId: match.id,
+        incoming: values,
+      });
+  }
+  for (const call of incoming.calls) {
+    const match = current.calls.find((item) => item.id === call.id);
+    if (!match) continue;
+    const edition = incoming.editions.find(
+      (item) => item.id === call.editionId,
+    );
+    const values = changedCatalogFields(
+      match as unknown as Legacy,
+      call as unknown as Legacy,
+    );
+    if (Object.keys(values).length)
+      updates.push({
+        festivalId:
+          festivalIds.get(edition?.festivalId || "") ||
+          edition?.festivalId ||
+          "",
+        detectedAt,
+        fields: Object.keys(values),
+        entityType: "call",
+        entityId: match.id,
+        incoming: values,
+      });
+  }
+  const out = mergeDatabases(current, incoming, "current");
+  const keys = new Set(
+    updates.map((update) => `${update.entityType}:${update.entityId}`),
+  );
+  out.archive.catalogUpdates = [
+    ...out.archive.catalogUpdates.filter(
+      (update) =>
+        !keys.has(
+          `${update.entityType || "festival"}:${update.entityId || update.festivalId}`,
+        ),
+    ),
+    ...updates,
+  ];
+  out.settings.catalogVersion = incoming.settings.catalogVersion;
   validateDatabase(out);
   return out;
 }
