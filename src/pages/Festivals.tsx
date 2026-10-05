@@ -410,20 +410,40 @@ export function Festivals() {
         : latestCalls(match.festival.id, db, idx);
   }
   function feeLabel(calls: Call[]) {
-    const fees = calls.flatMap((call) =>
+    const feesByCall = calls.map((call) =>
       currentFees(call, now, db.settings.timezone),
     );
-    if (fees.some((fee) => fee.free === "sim" && fee.amount === 0))
+    const fees = feesByCall.flat();
+    const hasFree = fees.some(
+      (fee) => fee.free === "sim" && fee.amount === 0,
+    );
+    const knownPaid = fees.filter(
+      (fee) => fee.amount !== null && fee.amount > 0,
+    );
+    const hasUnknown = feesByCall.some(
+      (group) =>
+        !group.length ||
+        group.every(
+          (fee) => fee.amount === null && fee.free !== "sim",
+        ),
+    );
+    if (hasFree && knownPaid.length) return "Gratuito ou pago por categoria";
+    if (hasFree && hasUnknown) return "Gratuito; outras taxas desconhecidas";
+    if (hasFree)
       return "Gratuito confirmado";
-    const known = fees.filter((fee) => fee.amount !== null);
+    const known = knownPaid;
     if (known.length) {
       const currencies = new Set(known.map((fee) => fee.currency));
-      if (currencies.size > 1) return "Varia por moeda/categoria";
+      if (currencies.size > 1)
+        return hasUnknown
+          ? "Varia por moeda/categoria; outras desconhecidas"
+          : "Varia por moeda/categoria";
       const amounts = known.map((fee) => fee.amount as number);
       const currency = known[0].currency;
-      return Math.min(...amounts) === Math.max(...amounts)
+      const label = Math.min(...amounts) === Math.max(...amounts)
         ? `${currency} ${Math.min(...amounts).toFixed(2)}`
         : `${currency} ${Math.min(...amounts).toFixed(2)}–${Math.max(...amounts).toFixed(2)}`;
+      return hasUnknown ? `${label}; outras taxas desconhecidas` : label;
     }
     return "Taxa desconhecida";
   }
@@ -1319,6 +1339,12 @@ function FestivalTable({
                         <strong>
                           {calls[0]?.name || "Chamada não confirmada"}
                         </strong>
+                        {calls.length > 1 && (
+                          <small>
+                            {calls.length} chamadas correspondentes; colunas
+                            agregadas
+                          </small>
+                        )}
                         <small>
                           {[
                             ...new Set(calls.flatMap((call) => call.languages)),
