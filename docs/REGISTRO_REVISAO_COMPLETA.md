@@ -369,3 +369,15 @@ Executar a suíte integral, typecheck, build/PWA e verificação de `dist`; revi
 ### Próximo passo exato
 
 Criar o commit do ciclo documental e de integração, enviar a branch, atualizar a PR #1 e aguardar os checks remotos. Somente após aprovação, fazer merge em `main`, acompanhar o deploy do workflow `Validar e publicar Circuito` e verificar a versão pública.
+
+## 2026-10-05 — verificação publicada e correção de taxa agregada
+
+- A PR #1 passou no job remoto `build`, foi incorporada em `main` no merge `fb46b9f` e os jobs de `main` (`build` e `deploy`) concluíram com sucesso.
+- A página publicada carregou o schema 4, 182 festivais e 533 chamadas. O painel mostrou os prazos correntes e a tela de festivais exibiu os novos registros documentais.
+- A inspeção visual revelou uma incoerência de apresentação: quando um festival tinha chamadas gratuitas e pagas, a tabela mostrava o nome da primeira chamada paga, mas rotulava o festival inteiro como “Gratuito confirmado” por existir outra chamada gratuita. Os filtros já mantinham critérios na mesma chamada; o problema estava no resumo agregado sem filtro.
+- `feeLabel` agora distingue “Gratuito ou pago por categoria”, combina taxa conhecida com chamadas desconhecidas sem transformar a lacuna em gratuidade e conserva faixas/moedas documentadas. A tabela também informa quando suas colunas agregam mais de uma chamada.
+- Verificação após o ajuste: typecheck aprovado; suíte unitária **41/41** aprovada (benchmark isolado: aproximadamente 1,45 s); cenário Playwright de filtros combinados e persistência aprovado; build/PWA e `check:dist` aprovados.
+
+### Próximo passo exato
+
+Enviar a correção pela branch de revisão, incorporá-la em `main`, aguardar novamente os jobs remotos e confirmar no GitHub Pages que BOGOSHORTS aparece como gratuito ou pago por categoria e que o filtro pago continua retornando somente chamadas pagas correspondentes.

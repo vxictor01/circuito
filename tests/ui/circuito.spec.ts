@@ -91,6 +91,12 @@ test("favorito, filtros combinados, cards e modo mantido após reload", async ({
   await page.goto("./#/festivais");
   await page
     .getByLabel("Buscar festivais", { exact: true })
+    .fill("BOGOSHORTS");
+  await expect(
+    page.getByRole("row").filter({ hasText: "BOGOSHORTS" }),
+  ).toContainText("Gratuito ou pago por categoria");
+  await page
+    .getByLabel("Buscar festivais", { exact: true })
     .fill("FEST — New Directors");
   const row = page
     .getByRole("row")
